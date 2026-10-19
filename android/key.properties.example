@@ -1,0 +1,9 @@
+# Configuración de firma para Release (APK / App Bundle)
+# Generar almacén de claves con:
+# keytool -genkey -v -keystore release.keystore -alias biblio_key -keyalg RSA -keysize 2048 -validity 10000
+#
+# Copiar este archivo a escaner_libros/android/key.properties y completar los valores:
+storePassword=password_del_keystore
+keyPassword=password_del_alias
+keyAlias=biblio_key
+storeFile=../release.keystore

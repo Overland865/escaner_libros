@@ -1,0 +1,526 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import '../models/libro_model.dart';
+
+/// Resultado paginado de libros desde la API.
+class ResultadoLibrosPaginados {
+  final List<LibroModel> libros;
+  final int total;
+  final int skip;
+  final int limit;
+  final bool hasMore;
+
+  const ResultadoLibrosPaginados({
+    required this.libros,
+    required this.total,
+    required this.skip,
+    required this.limit,
+    required this.hasMore,
+  });
+}
+
+/// Error de la API.
+///
+/// [esErrorDeConexion] distingue dos situaciones que la UI debe tratar de
+/// forma distinta:
+///   * `true`  → el servidor no respondió (apagado, IP/Puerto equivocado,
+///               sin red). El mensaje "servidor no disponible" es correcto.
+///   * `false` → el servidor respondió con un error (validación, 404, 500).
+///               El servidor SÍ está arriba; culpar a la conexión sería mentira.
+class ApiException implements Exception {
+  final String message;
+  final bool esErrorDeConexion;
+
+  /// Código HTTP de la respuesta, o `null` si el fallo fue de transporte.
+  /// Permite distinguir "no existe" (404) de "falló el servidor" (5xx).
+  final int? statusCode;
+
+  const ApiException(
+    this.message, {
+    this.esErrorDeConexion = false,
+    this.statusCode,
+  });
+
+  bool get esNoEncontrado => statusCode == 404;
+  bool get esNoAutorizado => statusCode == 401;
+
+  @override
+  String toString() => message;
+}
+
+/// Cliente REST del backend Node.js/Express.
+///
+/// La app móvil NUNCA habla directo con MongoDB: todas las operaciones pasan
+/// por el backend, que es el único dueño de las credenciales de Atlas y Gemini.
+class ApiService {
+  ApiService._();
+
+  static const Duration _timeoutLectura = Duration(seconds: 45);
+  static const Duration _timeoutEscritura = Duration(seconds: 60);
+
+  static String _baseUrl = '';
+  static String _apiKey = '';
+
+  static const String _prefsFileName = 'api_base_url.txt';
+  static const String _keyPrefsFileName = 'api_access_key.txt';
+
+  /// Dirección base del backend, sin barra final y sin el sufijo `/api/libros`.
+  static String get baseUrl => _baseUrl;
+
+  /// Clave de autenticación API / Bearer token.
+  static String get apiKey => _apiKey;
+
+  static set apiKey(String value) {
+    _apiKey = _limpiarComillas(value);
+  }
+
+  /// URL del backend desplegado (`.env` → `API_BASE_URL`).
+  /// Si aún es un placeholder o está vacía, [tieneUrlProduccion] es false.
+  static String get urlProduccion {
+    final raw = dotenv.env['API_BASE_URL'];
+    if (raw == null || raw.trim().isEmpty) return '';
+    return normalizarUrl(raw);
+  }
+
+  /// True cuando `API_BASE_URL` apunta a un host remoto (https o no-local).
+  static bool get tieneUrlProduccion {
+    final u = urlProduccion;
+    if (u.isEmpty) return false;
+    if (u.contains('localhost') || u.contains('127.0.0.1')) return false;
+    if (u.contains('10.0.2.2')) return false;
+    return true;
+  }
+
+  static String _limpiarComillas(String s) {
+    var v = s.trim();
+    if ((v.startsWith('"') && v.endsWith('"')) ||
+        (v.startsWith("'") && v.endsWith("'"))) {
+      if (v.length >= 2) v = v.substring(1, v.length - 1).trim();
+    }
+    return v;
+  }
+
+  /// Acepta varias formas y las normaliza:
+  ///   `192.168.1.85:3000` → `http://192.168.1.85:3000`
+  ///   `https://api.midominio.com/api/libros/` → `https://api.midominio.com`
+  static String normalizarUrl(String value) {
+    var v = _limpiarComillas(value);
+    if (v.isEmpty) return v;
+    if (!v.startsWith('http://') && !v.startsWith('https://')) {
+      // Hosts públicos suelen ir por HTTPS; IPs locales por HTTP.
+      final pareceLocal = RegExp(r'^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)')
+          .hasMatch(v);
+      v = pareceLocal ? 'http://$v' : 'https://$v';
+    }
+    const sufijo = '/api/libros';
+    final idx = v.indexOf(sufijo);
+    if (idx != -1) v = v.substring(0, idx);
+    while (v.endsWith('/')) {
+      v = v.substring(0, v.length - 1);
+    }
+    return v;
+  }
+
+  static set baseUrl(String value) {
+    var v = normalizarUrl(value);
+    if (v.isEmpty) v = _defaultBaseUrl;
+    _baseUrl = v;
+  }
+
+  static String get _defaultBaseUrl {
+    final prod = urlProduccion;
+    if (prod.isNotEmpty) {
+      return prod;
+    }
+    // Fallback de desarrollo: alias del emulador Android → localhost de la PC.
+    return 'http://10.0.2.2:3000';
+  }
+
+  static Future<File> _archivoPreferencia(String nombre) async {
+    final docs = await getApplicationDocumentsDirectory();
+    return File(p.join(docs.path, nombre));
+  }
+
+  /// Carga la URL y clave API guardadas por el usuario o las del `.env`.
+  /// Llamar una vez desde `main()` después de cargar dotenv.
+  static Future<void> init() async {
+    try {
+      final fUrl = await _archivoPreferencia(_prefsFileName);
+      if (await fUrl.exists()) {
+        final guardada = (await fUrl.readAsString()).trim();
+        if (guardada.isNotEmpty) {
+          baseUrl = guardada;
+        } else {
+          baseUrl = _defaultBaseUrl;
+        }
+      } else {
+        baseUrl = _defaultBaseUrl;
+      }
+    } catch (e) {
+      debugPrint('ApiService: no se pudo leer URL guardada: $e');
+      baseUrl = _defaultBaseUrl;
+    }
+
+    try {
+      final fKey = await _archivoPreferencia(_keyPrefsFileName);
+      if (await fKey.exists()) {
+        final guardada = (await fKey.readAsString()).trim();
+        if (guardada.isNotEmpty) {
+          apiKey = guardada;
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('ApiService: no se pudo leer API key guardada: $e');
+    }
+
+    final fromEnv = dotenv.env['API_KEY'] ?? const String.fromEnvironment('API_KEY', defaultValue: '');
+    if (fromEnv.trim().isNotEmpty) {
+      apiKey = fromEnv;
+    }
+  }
+
+  /// Persiste la URL elegida para que sobreviva reinicios de la app.
+  static Future<void> guardarBaseUrl(String value) async {
+    baseUrl = value;
+    try {
+      final f = await _archivoPreferencia(_prefsFileName);
+      await f.writeAsString(_baseUrl);
+    } catch (e) {
+      debugPrint('ApiService: no se pudo guardar URL: $e');
+    }
+  }
+
+  /// Persiste la clave API / Token para que sobreviva reinicios de la app.
+  static Future<void> guardarApiKey(String value) async {
+    apiKey = value;
+    try {
+      final f = await _archivoPreferencia(_keyPrefsFileName);
+      await f.writeAsString(_apiKey);
+    } catch (e) {
+      debugPrint('ApiService: no se pudo guardar API key: $e');
+    }
+  }
+
+  static Uri _uri(String path, [Map<String, String>? query]) =>
+      Uri.parse('$_baseUrl$path').replace(queryParameters: query);
+
+  static Map<String, String> _headers([Map<String, String>? adicionales]) {
+    final h = <String, String>{
+      'Content-Type': 'application/json; charset=utf-8',
+    };
+    if (_apiKey.isNotEmpty) {
+      h['X-API-Key'] = _apiKey;
+      h['Authorization'] = 'Bearer $_apiKey';
+    }
+    if (adicionales != null) {
+      h.addAll(adicionales);
+    }
+    return h;
+  }
+
+  /// Envuelve la petición y traduce los fallos de red a [ApiException].
+  static Future<http.Response> _enviar(
+    Future<http.Response> Function() accion,
+    Duration timeout,
+  ) async {
+    try {
+      return await accion().timeout(timeout);
+    } on TimeoutException {
+      final esEmuladorIp = _baseUrl.contains('10.0.2.2');
+      final esRender = _baseUrl.contains('onrender.com');
+      final notaServidor = esEmuladorIp
+          ? '\n\n⚠️ NOTA: Si estás probando en un celular físico, "10.0.2.2" no funciona. '
+              'Debes cambiar el servidor a la IP de tu PC o a tu URL de Render.'
+          : (esRender
+              ? '\n\n⚠️ NOTA: El servidor en Render entra en reposo tras inactividad en el plan gratuito. '
+                  'El primer encendido puede tardar hasta 45-60 segundos. Vuelve a intentar en unos instantes.'
+              : '');
+
+      throw ApiException(
+        'El servidor no respondió a tiempo.\n'
+        'URL intentada: $_baseUrl$notaServidor\n\n'
+        'Verifica que el backend esté ejecutándose y que tengas conexión a Internet.',
+        esErrorDeConexion: true,
+      );
+    } on SocketException catch (e) {
+      final detalle = e.osError?.message ?? e.message;
+      final esEmuladorIp = _baseUrl.contains('10.0.2.2');
+      final notaEmulador = esEmuladorIp
+          ? '\n\n⚠️ Si estás en celular físico, "10.0.2.2" es inalcanzable. '
+              'Usa la IP Wi-Fi de tu PC (ej. http://192.168.1.X:3000).'
+          : '';
+
+      throw ApiException(
+        'No se pudo conectar con el servidor backend.\n'
+        'URL: $_baseUrl\n'
+        'Detalle: $detalle$notaEmulador',
+        esErrorDeConexion: true,
+      );
+    } on HandshakeException {
+      throw const ApiException(
+        'Error de conexión segura (SSL/TLS) con el servidor.',
+        esErrorDeConexion: true,
+      );
+    } on http.ClientException catch (e) {
+      throw ApiException(
+        'Error de cliente HTTP al conectar con el servidor.\n$_baseUrl\n${e.message}',
+        esErrorDeConexion: true,
+      );
+    }
+  }
+
+  static Future<dynamic> _get(String path, [Map<String, String>? query]) async {
+    final res = await _enviar(() => http.get(_uri(path, query), headers: _headers()), _timeoutLectura);
+    return _decodir(res, 'GET $path');
+  }
+
+  static Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+    final res = await _enviar(
+      () => http.post(
+        _uri(path),
+        headers: _headers(),
+        body: jsonEncode(body),
+      ),
+      _timeoutEscritura,
+    );
+    return _decodir(res, 'POST $path');
+  }
+
+  static Future<dynamic> _delete(String path) async {
+    final res = await _enviar(() => http.delete(_uri(path), headers: _headers()), _timeoutLectura);
+    return _decodir(res, 'DELETE $path');
+  }
+
+  static dynamic _decodirRespuestaCruda(http.Response res, String contexto) {
+    dynamic json;
+    try {
+      json = jsonDecode(utf8.decode(res.bodyBytes));
+    } catch (_) {
+      if (res.statusCode == 413) {
+        throw const ApiException(
+          'El libro es demasiado grande para el servidor '
+          '(límite de 50 MB). Escanea menos páginas por documento.',
+        );
+      }
+      if (res.statusCode >= 500) {
+        throw ApiException(
+          'El servidor respondió con un error interno (${res.statusCode}).',
+          esErrorDeConexion: true,
+        );
+      }
+      throw ApiException('Respuesta inesperada del servidor (${res.statusCode}).');
+    }
+
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      if (json is Map && json['success'] == false) {
+        throw ApiException(
+          (json['message'] ?? json['error'] ?? 'Operación rechazada.').toString(),
+          statusCode: res.statusCode,
+        );
+      }
+      return json;
+    }
+
+    final mensaje = (json is Map)
+        ? (json['message'] ?? json['error'] ?? 'Error ${res.statusCode}')
+        : 'Error ${res.statusCode}';
+    debugPrint('$contexto falló: $mensaje');
+    throw ApiException(mensaje.toString(), statusCode: res.statusCode);
+  }
+
+  /// Normaliza la respuesta: devuelve `data` y convierte `success:false` en error.
+  static dynamic _decodir(http.Response res, String contexto) {
+    final json = _decodirRespuestaCruda(res, contexto);
+    return json is Map && json.containsKey('data') ? json['data'] : json;
+  }
+
+  /// Estado del backend y, por separado, el de Atlas.
+  /// Devuelve `null` si el servidor HTTP no responde.
+  static Future<Map<String, dynamic>?> consultarSalud() async {
+    try {
+      final res = await _enviar(
+        () => http.get(_uri('/api/salud'), headers: _headers()),
+        const Duration(seconds: 10),
+      );
+      return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Verifica que el backend esté levantado, accesible y que la clave API (si existe) sea válida.
+  static Future<bool> probarConexion() async {
+    try {
+      final salud = await consultarSalud();
+      if (salud == null || salud['servidor'] != 'ok') return false;
+
+      if (_apiKey.isNotEmpty) {
+        final res = await _enviar(
+          () => http.get(_uri('/api/libros', {'limit': '1'}), headers: _headers()),
+          const Duration(seconds: 10),
+        );
+        if (res.statusCode == 401) {
+          return false;
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Obtiene lista paginada de libros con metadatos de paginación.
+  static Future<ResultadoLibrosPaginados> obtenerLibrosPaginados({
+    String? busqueda,
+    int limit = 50,
+    int skip = 0,
+  }) async {
+    final query = <String, String>{
+      'limit': '$limit',
+      'skip': '$skip',
+      if (busqueda != null && busqueda.trim().isNotEmpty)
+        'busqueda': busqueda.trim(),
+    };
+
+    final res = await _enviar(
+      () => http.get(_uri('/api/libros', query), headers: _headers()),
+      _timeoutLectura,
+    );
+    final json = _decodirRespuestaCruda(res, 'GET /api/libros');
+    final rawData = json is Map && json.containsKey('data') ? json['data'] : json;
+    final List list = rawData is List ? rawData : const [];
+
+    final total = (json is Map && json['total'] != null)
+        ? (json['total'] as num).toInt()
+        : list.length;
+    final hasMore = (json is Map && json['hasMore'] is bool)
+        ? (json['hasMore'] as bool)
+        : (skip + list.length < total);
+
+    final libros = list
+        .whereType<Map>()
+        .map((e) => LibroModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+
+    return ResultadoLibrosPaginados(
+      libros: libros,
+      total: total,
+      skip: skip,
+      limit: limit,
+      hasMore: hasMore,
+    );
+  }
+
+  /// Lista de libros (sin páginas, para el listado).
+  static Future<List<LibroModel>> obtenerLibros({
+    String? busqueda,
+    int limit = 50,
+    int skip = 0,
+  }) async {
+    final paginado = await obtenerLibrosPaginados(
+      busqueda: busqueda,
+      limit: limit,
+      skip: skip,
+    );
+    return paginado.libros;
+  }
+
+  /// Transcribe una imagen paleográfica llamando al backend (protegiendo GEMINI_API_KEY).
+  static Future<String> transcribirImagen(String pathImagen) async {
+    final file = File(pathImagen);
+    if (!await file.exists()) {
+      throw ApiException('La imagen no existe en la ruta: $pathImagen');
+    }
+
+    final bytes = await file.readAsBytes();
+    final base64Image = base64Encode(bytes);
+    final ext = pathImagen.toLowerCase().split('.').last;
+    final mimeType = ext == 'png'
+        ? 'image/png'
+        : ext == 'webp'
+            ? 'image/webp'
+            : 'image/jpeg';
+
+    final res = await _post('/api/transcribir', {
+      'imagen': base64Image,
+      'mimeType': mimeType,
+    });
+
+    if (res is Map && res['texto'] != null) {
+      return res['texto'].toString().trim();
+    }
+    throw const ApiException('El backend respondió pero no incluyó texto transcrito.');
+  }
+
+  /// Detalle completo de un libro (incluye `paginas`).
+  static Future<LibroModel?> obtenerDetalleLibro(String id) async {
+    try {
+      final data = await _get('/api/libros/${Uri.encodeComponent(id)}');
+      if (data is! Map) return null;
+      return LibroModel.fromJson(Map<String, dynamic>.from(data));
+    } on ApiException catch (e) {
+      if (e.esNoEncontrado) return null;
+      rethrow;
+    }
+  }
+
+  /// Crea o actualiza un libro escaneado (`upsert` en el backend).
+  static Future<String> subirLibroEscaneado(LibroModel libro) async {
+    await _verificarAlcanzable();
+
+    return _conReintento(() async {
+      final res = await _post('/api/libros', libro.toJson());
+      return res is Map && res['message'] != null
+          ? res['message'].toString()
+          : 'Libro guardado';
+    });
+  }
+
+  /// Falla rápido si el backend no contesta, con un mensaje que dice qué
+  /// dirección se intentó y cómo corregirla.
+  static Future<void> _verificarAlcanzable() async {
+    if (await consultarSalud() != null) return;
+    final esEmulador = _baseUrl.contains('10.0.2.2');
+    final nota = esEmulador
+        ? '\n\n⚠️ Estás apuntando a "10.0.2.2" (solo para emulador de Android). '
+            'Si estás en un celular físico, pulsa "Cambiar servidor" y usa la IP de tu PC (ej. http://192.168.1.X:3000).'
+        : '';
+
+    throw ApiException(
+      'No hay conexión con el backend en:\n$_baseUrl$nota\n\n'
+      'Comprueba que el backend esté ejecutándose en la PC ("npm start" en la carpeta backend) '
+      'y que ambos dispositivos estén en la misma red Wi-Fi.',
+      esErrorDeConexion: true,
+    );
+  }
+
+  /// Reintenta una vez ante fallos de red. Un `upsert` es idempotente, así que
+  /// no hay riesgo de crear dos documentos.
+  static Future<T> _conReintento<T>(
+    Future<T> Function() accion, {
+    int intentos = 2,
+  }) async {
+    for (var i = 1; ; i++) {
+      try {
+        return await accion();
+      } on ApiException catch (e) {
+        if (!e.esErrorDeConexion || i >= intentos) rethrow;
+        debugPrint('Fallo de red (intento $i/$intentos), reintentando en 2s...');
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+  }
+
+  static Future<void> eliminarLibro(String id) async {
+    await _delete('/api/libros/${Uri.encodeComponent(id)}');
+  }
+}

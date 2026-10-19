@@ -1,0 +1,17 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # En pruebas está bien imprimir: son las pruebas de humo cuyo valor es
+    # justamente ver la transcripción y las respuestas en consola.
+    avoid_print: false
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
