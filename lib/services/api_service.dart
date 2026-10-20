@@ -314,7 +314,7 @@ class ApiService {
       if (res.statusCode >= 500) {
         throw ApiException(
           'El servidor respondió con un error interno (${res.statusCode}).',
-          esErrorDeConexion: true,
+          statusCode: res.statusCode,
         );
       }
       throw ApiException('Respuesta inesperada del servidor (${res.statusCode}).');
@@ -357,24 +357,26 @@ class ApiService {
     }
   }
 
-  /// Verifica que el backend esté levantado, accesible y que la clave API (si existe) sea válida.
-  static Future<bool> probarConexion() async {
-    try {
-      final salud = await consultarSalud();
-      if (salud == null || salud['servidor'] != 'ok') return false;
+  /// Verifica el backend y el endpoint protegido de libros.
+  /// Devuelve `null` si funciona o un mensaje de error para mostrar en la UI.
+  static Future<String?> probarConexion() async {
+    final salud = await consultarSalud();
+    if (salud == null) {
+      return 'No se pudo contactar con el servidor en $_baseUrl.';
+    }
+    if (salud['servidor'] != 'ok') {
+      return 'El servidor respondió, pero no está listo.';
+    }
 
-      if (_apiKey.isNotEmpty) {
-        final res = await _enviar(
-          () => http.get(_uri('/api/libros', {'limit': '1'}), headers: _headers()),
-          const Duration(seconds: 10),
-        );
-        if (res.statusCode == 401) {
-          return false;
-        }
-      }
-      return true;
-    } catch (_) {
-      return false;
+    try {
+      final res = await _enviar(
+        () => http.get(_uri('/api/libros', {'limit': '1'}), headers: _headers()),
+        const Duration(seconds: 10),
+      );
+      _decodirRespuestaCruda(res, 'GET /api/libros');
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
     }
   }
 

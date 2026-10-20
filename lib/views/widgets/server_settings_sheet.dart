@@ -212,7 +212,8 @@ Future<void> showServerSettingsSheet(
                                 ApiService.baseUrl = urlController.text;
                                 ApiService.apiKey = keyController.text;
 
-                                final ok = await ApiService.probarConexion();
+                                final error = await ApiService.probarConexion();
+                                final ok = error == null;
                                 if (!ok) {
                                   ApiService.baseUrl = urlAnterior;
                                   ApiService.apiKey = keyAnterior;
@@ -222,7 +223,7 @@ Future<void> showServerSettingsSheet(
                                   exitoPrueba = ok;
                                   resultadoPrueba = ok
                                       ? '¡Conexión y credenciales verificadas!'
-                                      : 'No se pudo conectar o la clave fue rechazada.';
+                                      : error;
                                 });
                               },
                         icon: probando
