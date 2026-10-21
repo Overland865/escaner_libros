@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -5,7 +7,6 @@ import 'package:image_picker/image_picker.dart';
 import '../controllers/biblioteca_controller.dart';
 import '../models/libro_model.dart';
 import '../models/pagina_model.dart';
-import '../services/gemini_config.dart';
 import '../services/ocr_service.dart';
 import 'preview_screen.dart';
 
@@ -18,8 +19,7 @@ class ScanScreen extends StatefulWidget {
   final String titulo;
   final String iglesia;
   final String tipoLibro;
-  final int anioInicio;
-  final int anioFin;
+  final int anioPublicacion;
   final BibliotecaController biblioteca;
 
   const ScanScreen({
@@ -28,8 +28,7 @@ class ScanScreen extends StatefulWidget {
     required this.titulo,
     required this.iglesia,
     required this.tipoLibro,
-    required this.anioInicio,
-    required this.anioFin,
+    required this.anioPublicacion,
     required this.biblioteca,
   });
 
@@ -88,7 +87,11 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   /// Transcribe una imagen y la agrega al lote de páginas.
-  Future<void> _procesarImagen(String ruta, String mensajeCarga) async {
+  Future<void> _procesarImagen(
+    String ruta,
+    String mensajeCarga, {
+    bool eliminarImagenAlFinal = false,
+  }) async {
     setState(() {
       _procesando = true;
       _mensaje = mensajeCarga;
@@ -138,6 +141,14 @@ class _ScanScreenState extends State<ScanScreen> {
         );
       }
     } finally {
+      if (eliminarImagenAlFinal) {
+        try {
+          final imagenTemporal = File(ruta);
+          if (await imagenTemporal.exists()) await imagenTemporal.delete();
+        } catch (e) {
+          debugPrint('No se pudo eliminar la captura temporal: $e');
+        }
+      }
       if (mounted) setState(() => _procesando = false);
     }
   }
@@ -185,12 +196,16 @@ class _ScanScreenState extends State<ScanScreen> {
     if (camara == null || !camara.value.isInitialized || _procesando) return;
     try {
       final XFile foto = await camara.takePicture();
-      await _procesarImagen(foto.path, 'Digitalizando y transcribiendo página...');
+      await _procesarImagen(
+        foto.path,
+        'Digitalizando y transcribiendo página...',
+        eliminarImagenAlFinal: true,
+      );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo tomar la foto: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo tomar la foto: $e')));
       }
     }
   }
@@ -203,10 +218,7 @@ class _ScanScreenState extends State<ScanScreen> {
       if (seleccion.isEmpty) return;
       for (final XFile archivo in seleccion) {
         if (!mounted) return;
-        await _procesarImagen(
-          archivo.path,
-          'Procesando ${archivo.name}...',
-        );
+        await _procesarImagen(archivo.path, 'Procesando ${archivo.name}...');
       }
     } catch (e) {
       if (mounted) {
@@ -233,8 +245,8 @@ class _ScanScreenState extends State<ScanScreen> {
       autor: widget.iglesia,
       iglesia: widget.iglesia,
       tipoLibro: widget.tipoLibro,
-      anioInicio: widget.anioInicio,
-      anioFin: widget.anioFin,
+      anioInicio: widget.anioPublicacion,
+      anioFin: widget.anioPublicacion,
       palabrasClave: [
         widget.tipoLibro.toLowerCase(),
         widget.iglesia.toLowerCase(),
@@ -244,10 +256,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
     final guardado = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => PreviewScreen(
-          libro: libro,
-          biblioteca: widget.biblioteca,
-        ),
+        builder: (_) =>
+            PreviewScreen(libro: libro, biblioteca: widget.biblioteca),
       ),
     );
 
@@ -352,11 +362,7 @@ class _ScanScreenState extends State<ScanScreen> {
             child: CameraPreview(camara),
           ),
         ),
-        Positioned(
-          top: 16,
-          left: 16,
-          child: const _IndicadorMotorIA(),
-        ),
+        Positioned(top: 16, left: 16, child: const _IndicadorTranscripcion()),
         Positioned(
           top: 16,
           right: 16,
@@ -460,7 +466,10 @@ class _ContadorPaginas extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             '$cantidad ${cantidad == 1 ? 'página' : 'páginas'}',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -468,12 +477,12 @@ class _ContadorPaginas extends StatelessWidget {
   }
 }
 
-class _IndicadorMotorIA extends StatelessWidget {
-  const _IndicadorMotorIA();
+class _IndicadorTranscripcion extends StatelessWidget {
+  const _IndicadorTranscripcion();
 
   @override
   Widget build(BuildContext context) {
-    final tieneGemini = GeminiConfig.estaConfigurado;
+    final color = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: () {
         showDialog<void>(
@@ -481,36 +490,21 @@ class _IndicadorMotorIA extends StatelessWidget {
           builder: (ctx) => AlertDialog(
             title: Row(
               children: [
-                Icon(
-                  tieneGemini ? Icons.auto_awesome : Icons.document_scanner,
-                  color: tieneGemini ? const Color(0xFF283593) : Colors.amber.shade900,
-                ),
+                const Icon(Icons.cloud_upload_outlined),
                 const SizedBox(width: 8),
-                Text(
-                  tieneGemini ? 'Gemini Vision Activo' : 'ML Kit Local Activo',
-                  style: const TextStyle(fontSize: 18),
+                const Expanded(
+                  child: Text(
+                    'Transcripción segura',
+                    style: TextStyle(fontSize: 18),
+                  ),
                 ),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tieneGemini
-                      ? 'La app está usando la API de Gemini para la transcripción paleográfica de imágenes.'
-                      : 'No se detectó GEMINI_API_KEY en .env. Se usará el motor local ML Kit.',
-                  style: const TextStyle(fontSize: 13),
-                ),
-                const SizedBox(height: 12),
-                if (tieneGemini) ...[
-                  Text('• Modelo principal: ${GeminiConfig.modelo}'),
-                  const SizedBox(height: 4),
-                  const Text('• Modo: Multimodal Paleografía'),
-                  const SizedBox(height: 4),
-                  const Text('• Respaldo automático: Modelos alternativos + ML Kit'),
-                ],
-              ],
+            content: const Text(
+              'Cada página se envía al backend para transcribirla con Gemini. '
+              'La imagen no se guarda en la biblioteca; solo se conserva el '
+              'texto resultante. Si el backend no está disponible, se usa ML Kit '
+              'localmente. Las imágenes elegidas de la galería no se modifican.',
             ),
             actions: [
               TextButton(
@@ -526,24 +520,17 @@ class _IndicadorMotorIA extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: tieneGemini ? Colors.blue.shade300 : Colors.amber.shade400,
-            width: 1,
-          ),
+          border: Border.all(color: color, width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              tieneGemini ? Icons.auto_awesome : Icons.document_scanner,
-              color: tieneGemini ? Colors.blue.shade300 : Colors.amber.shade300,
-              size: 16,
-            ),
+            Icon(Icons.cloud_outlined, color: color, size: 16),
             const SizedBox(width: 6),
             Text(
-              tieneGemini ? 'Gemini IA' : 'ML Kit',
+              'Gemini backend',
               style: TextStyle(
-                color: tieneGemini ? Colors.blue.shade100 : Colors.amber.shade100,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
               ),
@@ -554,4 +541,3 @@ class _IndicadorMotorIA extends StatelessWidget {
     );
   }
 }
-

@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../controllers/biblioteca_controller.dart';
-import '../../services/api_service.dart';
-import '../widgets/server_settings_sheet.dart';
+import '../widgets/book_card.dart';
 
-/// Pestaña 1 — Resumen del archivo y estado de la conexión con el backend.
+/// Pestaña 1 — Resumen del archivo y acceso a libros.
 class HomeTab extends StatelessWidget {
   final BibliotecaController biblioteca;
   final VoidCallback onEscanear;
@@ -35,17 +34,42 @@ class HomeTab extends StatelessWidget {
                 const SizedBox(height: 20),
               ],
               _SeccionTitulo(
-                titulo: 'Estado del Archivo',
-                accion:
-                    biblioteca.estado == EstadoCarga.listo ? 'Ver todos' : null,
+                titulo: 'Libros registrados',
+                accion: biblioteca.estado == EstadoCarga.listo
+                    ? 'Ver todos (${biblioteca.totalRemoto})'
+                    : null,
                 onAccion: onVerLibros,
               ),
               const SizedBox(height: 12),
-              _TarjetasMetricas(biblioteca: biblioteca),
-              const SizedBox(height: 20),
-              _SeccionTitulo(titulo: 'Conexión'),
-              const SizedBox(height: 12),
-              _TarjetaConexion(biblioteca: biblioteca),
+              if (biblioteca.estado == EstadoCarga.cargando &&
+                  biblioteca.libros.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (biblioteca.libros.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 28),
+                    child: Text(
+                      biblioteca.estado == EstadoCarga.error
+                          ? 'No se pudieron cargar los libros.'
+                          : 'Aún no hay libros registrados.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ...biblioteca.libros.map(
+                  (libro) => BookCard(
+                    libro: libro,
+                    pendiente: biblioteca.esPendiente(libro.id),
+                  ),
+                ),
             ],
           ),
         );
@@ -67,10 +91,10 @@ class _TarjetaPendientes extends StatelessWidget {
 
     return Card(
       elevation: 0,
-      color: const Color(0xFFFFF8E1),
+      color: Theme.of(context).colorScheme.tertiaryContainer,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.amber.shade300),
+        side: BorderSide(color: Theme.of(context).colorScheme.tertiary),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -79,14 +103,17 @@ class _TarjetaPendientes extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.cloud_upload_outlined, color: Colors.amber.shade900),
+                Icon(
+                  Icons.cloud_upload_outlined,
+                  color: Theme.of(context).colorScheme.onTertiaryContainer,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     etiqueta,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Colors.amber.shade900,
+                      color: Theme.of(context).colorScheme.onTertiaryContainer,
                     ),
                   ),
                 ),
@@ -96,7 +123,10 @@ class _TarjetaPendientes extends StatelessWidget {
             Text(
               'Están guardados en el dispositivo. Se subirán al servidor '
               'cuando haya conexión.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onTertiaryContainer,
+              ),
             ),
             const SizedBox(height: 12),
             Align(
@@ -110,13 +140,12 @@ class _TarjetaPendientes extends StatelessWidget {
                         final msg = r.sinConexion
                             ? 'Sin conexión con el servidor. Los pendientes se mantienen.'
                             : r.exitosos > 0
-                                ? 'Sincronizados: ${r.exitosos}.'
-                                : r.fallidos > 0
-                                    ? 'No se pudo sincronizar. Reintentá más tarde.'
-                                    : 'No había pendientes.';
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(msg)),
-                        );
+                            ? 'Sincronizados: ${r.exitosos}.'
+                            : r.fallidos > 0
+                            ? 'No se pudo sincronizar. Reintentá más tarde.'
+                            : 'No había pendientes.';
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(msg)));
                       },
                 icon: biblioteca.sincronizando
                     ? const SizedBox(
@@ -222,224 +251,6 @@ class _Banner extends StatelessWidget {
   }
 }
 
-class _TarjetasMetricas extends StatelessWidget {
-  final BibliotecaController biblioteca;
-  const _TarjetasMetricas({required this.biblioteca});
-
-  @override
-  Widget build(BuildContext context) {
-    final cargando = biblioteca.estado == EstadoCarga.cargando;
-    return Row(
-      children: [
-        Expanded(
-          child: _Metrica(
-            icono: Icons.auto_stories,
-            valor: cargando ? '—' : '${biblioteca.libros.length}',
-            etiqueta: 'Documentos',
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _Metrica(
-            icono: Icons.category_outlined,
-            valor: cargando ? '—' : '${biblioteca.totalTipos}',
-            etiqueta: 'Tipos',
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _Metrica(
-            icono: Icons.history_toggle_off,
-            valor: cargando || biblioteca.antiguedadAnios == 0
-                ? '—'
-                : '${biblioteca.antiguedadAnios} años',
-            etiqueta: 'Antigüedad',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Metrica extends StatelessWidget {
-  final IconData icono;
-  final String valor;
-  final String etiqueta;
-
-  const _Metrica({
-    required this.icono,
-    required this.valor,
-    required this.etiqueta,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        children: [
-          Icon(icono, color: const Color(0xFF283593), size: 24),
-          const SizedBox(height: 8),
-          FittedBox(
-            child: Text(
-              valor,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Color(0xFF1A237E),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            etiqueta,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TarjetaConexion extends StatelessWidget {
-  final BibliotecaController biblioteca;
-  const _TarjetaConexion({required this.biblioteca});
-
-  static String _etiquetaEntorno(String url) {
-    final u = url.toLowerCase();
-    if (u.startsWith('https://') &&
-        !u.contains('localhost') &&
-        !u.contains('10.0.2.2') &&
-        !u.contains('192.168.')) {
-      return 'Modo producción (backend desplegado)';
-    }
-    if (u.contains('10.0.2.2')) {
-      return 'Desarrollo: emulador Android → PC';
-    }
-    if (u.contains('localhost') || u.contains('127.0.0.1')) {
-      return 'Desarrollo: solo funciona en la misma máquina';
-    }
-    if (u.startsWith('http://')) {
-      return 'Desarrollo: red local (PC debe estar encendida)';
-    }
-    return 'Backend configurado';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Hay tres estados distintos y antes todos se veían igual:
-    // servidor caído, Atlas caído y error puntual del servidor.
-    final caido = !biblioteca.servidorAlcanzable;
-    final atlasCaido = biblioteca.saludMongo == 'desconectado';
-
-    final Color color;
-    final IconData icono;
-    final String titulo;
-    if (caido) {
-      color = Colors.red.shade700;
-      icono = Icons.cloud_off;
-      titulo = 'Backend no disponible';
-    } else if (atlasCaido) {
-      color = Colors.amber.shade800;
-      icono = Icons.cloud_queue;
-      titulo = 'Atlas despertando';
-    } else if (biblioteca.error != null) {
-      color = Colors.amber.shade800;
-      icono = Icons.warning_amber;
-      titulo = 'Error en la consulta';
-    } else {
-      color = Colors.green.shade700;
-      icono = Icons.cloud_done;
-      titulo = 'Backend conectado';
-    }
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icono, color: color),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    titulo,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SelectableText(
-              ApiService.baseUrl,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _etiquetaEntorno(ApiService.baseUrl),
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-            ),
-            if (atlasCaido)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'El servidor está arriba, pero MongoDB Atlas no responde. El '
-                  'plan gratuito de Atlas pausa el cluster tras 5 minutos de '
-                  'inactividad y suele recuperarse solo en unos segundos.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-              ),
-            if (biblioteca.error != null && !caido)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  biblioteca.error!,
-                  style: TextStyle(fontSize: 12, color: color),
-                ),
-              ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => showServerSettingsSheet(
-                    context,
-                    onGuardado: biblioteca.refrescar,
-                  ),
-                  icon: const Icon(Icons.settings, size: 18),
-                  label: const Text('Cambiar servidor'),
-                ),
-                const SizedBox(width: 10),
-                TextButton.icon(
-                  onPressed: biblioteca.refrescar,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Reintentar'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _SeccionTitulo extends StatelessWidget {
   final String titulo;
   final String? accion;
@@ -449,15 +260,16 @@ class _SeccionTitulo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           titulo,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF1A237E),
+            color: color,
           ),
         ),
         if (accion != null)

@@ -3,9 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../controllers/biblioteca_controller.dart';
-import '../../models/libro_model.dart';
-import '../book_detail_screen.dart';
-import '../widgets/server_settings_sheet.dart';
+import '../widgets/backend_connection_sheet.dart';
+import '../widgets/book_card.dart';
 
 /// Pestaña 3 — Listado completo del archivo con buscador, filtros y paginación incremental.
 class LibraryTab extends StatefulWidget {
@@ -21,11 +20,13 @@ class _LibraryTabState extends State<LibraryTab> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   Timer? _debounce;
+  String _campoBusqueda = 'todos';
 
   @override
   void initState() {
     super.initState();
     _searchController.text = widget.biblioteca.busqueda;
+    _campoBusqueda = widget.biblioteca.campoBusqueda;
     widget.biblioteca.addListener(_alCambiarBusqueda);
     _scrollController.addListener(_alScrollear);
   }
@@ -53,16 +54,19 @@ class _LibraryTabState extends State<LibraryTab> {
     if (_searchController.text == widget.biblioteca.busqueda) return;
     _searchController.value = TextEditingValue(
       text: widget.biblioteca.busqueda,
-      selection: TextSelection.collapsed(offset: widget.biblioteca.busqueda.length),
+      selection: TextSelection.collapsed(
+        offset: widget.biblioteca.busqueda.length,
+      ),
     );
   }
 
   /// Rebote de 400 ms para no disparar una petición por tecla.
-  void _programarBusqueda(String texto) {
-    widget.biblioteca.buscar(texto);
+  void _programarBusqueda(String texto, {String? campo}) {
+    if (campo != null) _campoBusqueda = campo;
+    widget.biblioteca.buscar(texto, campo: _campoBusqueda);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), () {
-      widget.biblioteca.cargar();
+      widget.biblioteca.cargar(busqueda: texto, campoBusqueda: _campoBusqueda);
     });
   }
 
@@ -72,20 +76,27 @@ class _LibraryTabState extends State<LibraryTab> {
       animation: widget.biblioteca,
       builder: (context, _) {
         final b = widget.biblioteca;
+        final colors = Theme.of(context).colorScheme;
         return Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: TextField(
                 controller: _searchController,
+                keyboardType: _campoBusqueda == 'anio'
+                    ? TextInputType.number
+                    : TextInputType.text,
                 textInputAction: TextInputAction.search,
                 onChanged: _programarBusqueda,
                 onSubmitted: (q) {
                   _debounce?.cancel();
-                  widget.biblioteca.cargar(busqueda: q);
+                  widget.biblioteca.cargar(
+                    busqueda: q,
+                    campoBusqueda: _campoBusqueda,
+                  );
                 },
                 decoration: InputDecoration(
-                  hintText: 'Buscar libro, parroquia o año...',
+                  hintText: 'Escribe lo que quieres buscar...',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: b.busqueda.isEmpty
                       ? null
@@ -94,21 +105,51 @@ class _LibraryTabState extends State<LibraryTab> {
                           onPressed: () {
                             _debounce?.cancel();
                             _searchController.clear();
-                            widget.biblioteca.cargar(busqueda: '');
+                            widget.biblioteca.cargar(
+                              busqueda: '',
+                              campoBusqueda: _campoBusqueda,
+                            );
                           },
                         ),
-                  filled: true,
-                  fillColor: Colors.white,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
                   ),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: DropdownButtonFormField<String>(
+                initialValue: _campoBusqueda,
+                decoration: const InputDecoration(
+                  labelText: 'Buscar por',
+                  prefixIcon: Icon(Icons.filter_list),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 14),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'todos',
+                    child: Text('Todos los campos'),
+                  ),
+                  DropdownMenuItem(value: 'titulo', child: Text('Título')),
+                  DropdownMenuItem(value: 'iglesia', child: Text('Parroquia')),
+                  DropdownMenuItem(value: 'autor', child: Text('Autor')),
+                  DropdownMenuItem(
+                    value: 'tipo_libro',
+                    child: Text('Tipo de libro'),
+                  ),
+                  DropdownMenuItem(value: 'anio', child: Text('Año')),
+                  DropdownMenuItem(
+                    value: 'isbn_o_codigo',
+                    child: Text('Código'),
+                  ),
+                ],
+                onChanged: (campo) {
+                  if (campo != null) {
+                    _programarBusqueda(_searchController.text, campo: campo);
+                  }
+                },
               ),
             ),
             Padding(
@@ -116,12 +157,12 @@ class _LibraryTabState extends State<LibraryTab> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Documentos Registrados',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
+                      color: colors.primary,
                     ),
                   ),
                   if (b.estado == EstadoCarga.listo)
@@ -129,7 +170,10 @@ class _LibraryTabState extends State<LibraryTab> {
                       b.totalRemoto > b.libros.length
                           ? '${b.libros.length} de ${b.totalRemoto} libros'
                           : '${b.libros.length} encontrados',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
                     ),
                 ],
               ),
@@ -149,7 +193,10 @@ class _LibraryTabState extends State<LibraryTab> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 12),
-            Text('Cargando biblioteca...', style: TextStyle(color: Colors.grey)),
+            Text(
+              'Cargando biblioteca...',
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       );
@@ -163,16 +210,15 @@ class _LibraryTabState extends State<LibraryTab> {
           Icon(
             sinConexion ? Icons.cloud_off : Icons.error_outline,
             size: 54,
-            color: sinConexion ? Colors.grey.shade400 : Colors.amber.shade700,
+            color: sinConexion
+                ? Colors.grey.shade400
+                : Theme.of(context).colorScheme.tertiary,
           ),
           const SizedBox(height: 12),
           Center(
             child: Text(
               sinConexion ? 'Servidor no disponible' : 'No se pudo consultar',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
           const SizedBox(height: 6),
@@ -183,7 +229,9 @@ class _LibraryTabState extends State<LibraryTab> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
-                color: sinConexion ? Colors.grey : Colors.amber.shade900,
+                color: sinConexion
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : Theme.of(context).colorScheme.tertiary,
               ),
             ),
           ),
@@ -195,7 +243,10 @@ class _LibraryTabState extends State<LibraryTab> {
                 'cluster tras 5 min de inactividad y tarda unos segundos en '
                 'despertar. Reintenta en un momento.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.amber.shade800),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.tertiary,
+                ),
               ),
             ),
           const SizedBox(height: 18),
@@ -205,12 +256,10 @@ class _LibraryTabState extends State<LibraryTab> {
               runSpacing: 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => showServerSettingsSheet(
-                    context,
-                    onGuardado: b.refrescar,
-                  ),
-                  icon: const Icon(Icons.settings),
-                  label: const Text('Cambiar servidor / Clave'),
+                  onPressed: () =>
+                      showBackendConnectionSheet(context, onRetry: b.refrescar),
+                  icon: const Icon(Icons.cloud_outlined),
+                  label: const Text('Ver conexión'),
                 ),
                 ElevatedButton.icon(
                   onPressed: b.refrescar,
@@ -265,7 +314,8 @@ class _LibraryTabState extends State<LibraryTab> {
 
     final tieneHeaderDegradado = b.modoDegradado;
     final tieneItemCargaMas = b.hayMas || b.cargandoMas;
-    final totalItems = b.libros.length +
+    final totalItems =
+        b.libros.length +
         (tieneHeaderDegradado ? 1 : 0) +
         (tieneItemCargaMas ? 1 : 0);
 
@@ -281,13 +331,19 @@ class _LibraryTabState extends State<LibraryTab> {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Material(
-                color: Colors.amber.shade50,
+                color: Theme.of(context).colorScheme.tertiaryContainer,
                 borderRadius: BorderRadius.circular(10),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      Icon(Icons.cloud_off, size: 18, color: Colors.amber.shade900),
+                      Icon(
+                        Icons.cloud_off,
+                        size: 18,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onTertiaryContainer,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -295,7 +351,9 @@ class _LibraryTabState extends State<LibraryTab> {
                           '(sin conexión al servidor).',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.amber.shade900,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onTertiaryContainer,
                           ),
                         ),
                       ),
@@ -338,183 +396,8 @@ class _LibraryTabState extends State<LibraryTab> {
           }
 
           final libro = b.libros[indiceLibro];
-          return _TarjetaLibro(
-            libro: libro,
-            pendiente: b.esPendiente(libro.id),
-          );
+          return BookCard(libro: libro, pendiente: b.esPendiente(libro.id));
         },
-      ),
-    );
-  }
-}
-
-class _TarjetaLibro extends StatelessWidget {
-  final LibroModel libro;
-  final bool pendiente;
-
-  const _TarjetaLibro({required this.libro, this.pendiente = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          if (pendiente) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Este libro aún no está en el servidor. '
-                  'Sincronizalo desde Inicio para ver el detalle completo.',
-                ),
-              ),
-            );
-            return;
-          }
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => BookDetailScreen(
-                idLibro: libro.id,
-                titulo: libro.titulo,
-              ),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8EAF6),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.auto_stories,
-                      color: Color(0xFF283593),
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          libro.titulo,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A237E),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          libro.iglesia.isNotEmpty
-                              ? libro.iglesia
-                              : 'Parroquia no especificada',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right, color: Colors.grey),
-                ],
-              ),
-              const Divider(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          libro.tipoLibro,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade800,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      if (pendiente) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.amber.shade400),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.cloud_upload_outlined,
-                                size: 12,
-                                color: Colors.amber.shade900,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Pendiente de subir',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.amber.shade900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.date_range,
-                        size: 14,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${libro.anioInicio} - ${libro.anioFin}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

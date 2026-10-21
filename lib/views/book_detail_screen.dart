@@ -87,14 +87,12 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       await ApiService.eliminarLibro(libro.id);
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Documento eliminado')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Documento eliminado')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo eliminar: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
     }
   }
 
@@ -115,38 +113,45 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                        const SizedBox(height: 12),
-                        Text(_error!, textAlign: TextAlign.center),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _cargarDetalle,
-                          child: const Text('Reintentar'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red,
                     ),
-                  ),
-                )
-              : _construirDetalle(),
+                    const SizedBox(height: 12),
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _cargarDetalle,
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : _construirDetalle(),
     );
   }
 
   Widget _construirDetalle() {
     final libro = _libro!;
     final paginas = libro.paginas;
+    final colors = Theme.of(context).colorScheme;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
           elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -154,17 +159,22 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
               children: [
                 Text(
                   libro.titulo,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(Icons.church, size: 18, color: Colors.indigo),
+                    Icon(Icons.church, size: 18, color: colors.primary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        libro.iglesia.isNotEmpty ? libro.iglesia : 'Parroquia no especificada',
-                        style: const TextStyle(color: Colors.black87),
+                        libro.iglesia.isNotEmpty
+                            ? libro.iglesia
+                            : 'Parroquia no especificada',
+                        style: TextStyle(color: colors.onSurface),
                       ),
                     ),
                   ],
@@ -172,22 +182,24 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.calendar_month, size: 18, color: Colors.indigo),
+                    Icon(Icons.calendar_month, size: 18, color: colors.primary),
                     const SizedBox(width: 6),
                     Text(
-                      'Periodo: ${libro.anioInicio} - ${libro.anioFin}',
-                      style: const TextStyle(color: Colors.black87),
+                      libro.anioInicio == libro.anioFin
+                          ? 'Año de publicación: ${libro.anioInicio}'
+                          : 'Periodo: ${libro.anioInicio} - ${libro.anioFin}',
+                      style: TextStyle(color: colors.onSurface),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.category, size: 18, color: Colors.indigo),
+                    Icon(Icons.category, size: 18, color: colors.primary),
                     const SizedBox(width: 6),
                     Text(
                       'Tipo: ${libro.tipoLibro}',
-                      style: const TextStyle(color: Colors.black87),
+                      style: TextStyle(color: colors.onSurface),
                     ),
                   ],
                 ),
@@ -195,8 +207,16 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _metricItem('Páginas', '${paginas.length}', Icons.auto_stories),
-                    _metricItem('Identificador', libro.isbnOCodigo, Icons.fingerprint),
+                    _metricItem(
+                      'Páginas',
+                      '${paginas.length}',
+                      Icons.auto_stories,
+                    ),
+                    _metricItem(
+                      'Identificador',
+                      libro.isbnOCodigo,
+                      Icons.fingerprint,
+                    ),
                   ],
                 ),
               ],
@@ -220,37 +240,43 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
             ),
           )
         else
-          ...paginas.map((pag) => Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                child: ExpansionTile(
-                  leading: CircleAvatar(
-                    backgroundColor: const Color(0xFFE8EAF6),
-                    child: Text(
-                      '${pag.numeroPagina}',
+          ...paginas.map(
+            (pag) => Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: ExpansionTile(
+                leading: CircleAvatar(
+                  backgroundColor: colors.primaryContainer,
+                  child: Text(
+                    '${pag.numeroPagina}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: colors.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+                title: Text('Página ${pag.numeroPagina}'),
+                subtitle: Text('${pag.conteoPalabras} palabras transcritas'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: SelectableText(
+                      pag.texto.trim().isEmpty
+                          ? '[Sin texto transcrito]'
+                          : pag.texto,
                       style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF3F51B5),
+                        fontFamily: 'serif',
+                        fontSize: 14,
+                        height: 1.5,
                       ),
                     ),
                   ),
-                  title: Text('Página ${pag.numeroPagina}'),
-                  subtitle: Text('${pag.conteoPalabras} palabras transcritas'),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: SelectableText(
-                        pag.texto.trim().isEmpty ? '[Sin texto transcrito]' : pag.texto,
-                        style: const TextStyle(
-                          fontFamily: 'serif',
-                          fontSize: 14,
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -264,10 +290,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
           value,
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
         ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }

@@ -6,6 +6,7 @@ import 'services/api_service.dart';
 import 'views/tabs/home_tab.dart';
 import 'views/tabs/library_tab.dart';
 import 'views/tabs/scan_tab.dart';
+import 'views/widgets/backend_connection_sheet.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,15 +30,41 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF283593), // Indigo eclesiástico
-          brightness: Brightness.light,
+          brightness: Brightness.dark,
         ),
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+        scaffoldBackgroundColor: const Color(0xFF101116),
+        cardTheme: const CardThemeData(
+          color: Color(0xFF1B1C24),
+          surfaceTintColor: Colors.transparent,
+        ),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF1A237E),
+          backgroundColor: Color(0xFF171820),
+          foregroundColor: Color(0xFFE6E1F5),
+          surfaceTintColor: Colors.transparent,
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          backgroundColor: Color(0xFF171820),
+          indicatorColor: Color(0xFF39345C),
+          labelTextStyle: WidgetStatePropertyAll(
+            TextStyle(color: Color(0xFFE6E1F5)),
+          ),
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          fillColor: Color(0xFF23242D),
+          hintStyle: TextStyle(color: Color(0xFFB9B4C7)),
+          labelStyle: TextStyle(color: Color(0xFFCAC4D8)),
+          prefixIconColor: Color(0xFFC6BFFF),
+          suffixIconColor: Color(0xFFC6BFFF),
+          border: OutlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFF494653)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFF494653)),
+          ),
         ),
       ),
       home: const AppShell(),
@@ -97,7 +124,7 @@ class _AppShellState extends State<AppShell> {
                   ),
                   const Text(
                     'Biblioteca Eclesiástica',
-                    style: TextStyle(fontSize: 11, color: Colors.black45),
+                    style: TextStyle(fontSize: 11, color: Color(0xFFB9B4C7)),
                   ),
                 ],
               ),
@@ -135,10 +162,22 @@ class _AppShellState extends State<AppShell> {
               label: const Text('Digitalizar'),
             ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _indice,
-        onDestinationSelected: _irA,
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFE8EAF6),
+        selectedIndex: _indice == 2 ? 2 : 0,
+        onDestinationSelected: (indice) {
+          switch (indice) {
+            case 0:
+              _irA(0);
+            case 1:
+              showBackendConnectionSheet(
+                context,
+                onRetry: _biblioteca.refrescar,
+              );
+            case 2:
+              _irA(2);
+          }
+        },
+        backgroundColor: const Color(0xFF171820),
+        indicatorColor: const Color(0xFF39345C),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -146,9 +185,9 @@ class _AppShellState extends State<AppShell> {
             label: 'Inicio',
           ),
           NavigationDestination(
-            icon: Icon(Icons.document_scanner_outlined),
-            selectedIcon: Icon(Icons.document_scanner),
-            label: 'Escanear',
+            icon: Icon(Icons.cloud_outlined),
+            selectedIcon: Icon(Icons.cloud),
+            label: 'Conexión',
           ),
           NavigationDestination(
             icon: Icon(Icons.library_books_outlined),

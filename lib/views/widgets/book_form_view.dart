@@ -6,16 +6,14 @@ class DatosLibroForm {
   final String titulo;
   final String iglesia;
   final String tipoLibro;
-  final int anioInicio;
-  final int anioFin;
+  final int anioPublicacion;
 
   const DatosLibroForm({
     required this.codigo,
     required this.titulo,
     required this.iglesia,
     required this.tipoLibro,
-    required this.anioInicio,
-    required this.anioFin,
+    required this.anioPublicacion,
   });
 }
 
@@ -43,23 +41,19 @@ class _BookFormViewState extends State<BookFormView> {
     'Documento Histórico General',
   ];
 
-  final _codigoController = TextEditingController(text: 'LIB-1850-SAN-001');
-  final _tituloController =
-      TextEditingController(text: 'Libro de Bautismos y Defunciones');
-  final _iglesiaController =
-      TextEditingController(text: 'Parroquia San Miguel Arcángel');
-  final _anioInicioController = TextEditingController(text: '1850');
-  final _anioFinController = TextEditingController(text: '1875');
+  final _codigoController = TextEditingController();
+  final _tituloController = TextEditingController();
+  final _iglesiaController = TextEditingController();
+  final _anioPublicacionController = TextEditingController();
 
-  String _tipoLibro = tiposDisponibles.first;
+  String? _tipoLibro;
 
   @override
   void dispose() {
     _codigoController.dispose();
     _tituloController.dispose();
     _iglesiaController.dispose();
-    _anioInicioController.dispose();
-    _anioFinController.dispose();
+    _anioPublicacionController.dispose();
     super.dispose();
   }
 
@@ -70,9 +64,8 @@ class _BookFormViewState extends State<BookFormView> {
         codigo: _codigoController.text.trim(),
         titulo: _tituloController.text.trim(),
         iglesia: _iglesiaController.text.trim(),
-        tipoLibro: _tipoLibro,
-        anioInicio: int.tryParse(_anioInicioController.text.trim()) ?? 1800,
-        anioFin: int.tryParse(_anioFinController.text.trim()) ?? 1900,
+        tipoLibro: _tipoLibro!,
+        anioPublicacion: int.parse(_anioPublicacionController.text.trim()),
       ),
     );
   }
@@ -93,7 +86,8 @@ class _BookFormViewState extends State<BookFormView> {
               prefixIcon: Icon(Icons.qr_code),
               border: OutlineInputBorder(),
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -105,7 +99,8 @@ class _BookFormViewState extends State<BookFormView> {
               prefixIcon: Icon(Icons.menu_book),
               border: OutlineInputBorder(),
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -117,7 +112,8 @@ class _BookFormViewState extends State<BookFormView> {
               prefixIcon: Icon(Icons.church),
               border: OutlineInputBorder(),
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
           ),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
@@ -131,41 +127,27 @@ class _BookFormViewState extends State<BookFormView> {
                 .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                 .toList(),
             onChanged: (val) {
-              if (val != null) setState(() => _tipoLibro = val);
+              setState(() => _tipoLibro = val);
             },
+            validator: (value) => value == null ? 'Selecciona un tipo' : null,
           ),
           const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _anioInicioController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Año Inicio',
-                    prefixIcon: Icon(Icons.calendar_today),
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: TextFormField(
-                  controller: _anioFinController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Año Fin',
-                    prefixIcon: Icon(Icons.event),
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-                ),
-              ),
-            ],
+          TextFormField(
+            controller: _anioPublicacionController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Año de publicación',
+              hintText: 'Ej. 1850',
+              prefixIcon: Icon(Icons.calendar_today),
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) {
+              final year = int.tryParse(value?.trim() ?? '');
+              if (year == null || year < 1 || year > 9999) {
+                return 'Ingresa un año válido';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 28),
           ElevatedButton.icon(

@@ -69,11 +69,12 @@ class ApiService {
   static String _baseUrl = '';
   static String _apiKey = '';
 
-  static const String _prefsFileName = 'api_base_url.txt';
   static const String _keyPrefsFileName = 'api_access_key.txt';
 
   /// Dirección base del backend, sin barra final y sin el sufijo `/api/libros`.
   static String get baseUrl => _baseUrl;
+
+  static set baseUrl(String value) => _baseUrl = normalizarUrl(value);
 
   /// Clave de autenticación API / Bearer token.
   static String get apiKey => _apiKey;
@@ -116,8 +117,9 @@ class ApiService {
     if (v.isEmpty) return v;
     if (!v.startsWith('http://') && !v.startsWith('https://')) {
       // Hosts públicos suelen ir por HTTPS; IPs locales por HTTP.
-      final pareceLocal = RegExp(r'^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)')
-          .hasMatch(v);
+      final pareceLocal = RegExp(
+        r'^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)',
+      ).hasMatch(v);
       v = pareceLocal ? 'http://$v' : 'https://$v';
     }
     const sufijo = '/api/libros';
@@ -129,45 +131,15 @@ class ApiService {
     return v;
   }
 
-  static set baseUrl(String value) {
-    var v = normalizarUrl(value);
-    if (v.isEmpty) v = _defaultBaseUrl;
-    _baseUrl = v;
-  }
-
-  static String get _defaultBaseUrl {
-    final prod = urlProduccion;
-    if (prod.isNotEmpty) {
-      return prod;
-    }
-    // Fallback de desarrollo: alias del emulador Android → localhost de la PC.
-    return 'http://10.0.2.2:3000';
-  }
-
   static Future<File> _archivoPreferencia(String nombre) async {
     final docs = await getApplicationDocumentsDirectory();
     return File(p.join(docs.path, nombre));
   }
 
-  /// Carga la URL y clave API guardadas por el usuario o las del `.env`.
+  /// Carga la URL de Render y la clave API del `.env` o de las preferencias.
   /// Llamar una vez desde `main()` después de cargar dotenv.
   static Future<void> init() async {
-    try {
-      final fUrl = await _archivoPreferencia(_prefsFileName);
-      if (await fUrl.exists()) {
-        final guardada = (await fUrl.readAsString()).trim();
-        if (guardada.isNotEmpty) {
-          baseUrl = guardada;
-        } else {
-          baseUrl = _defaultBaseUrl;
-        }
-      } else {
-        baseUrl = _defaultBaseUrl;
-      }
-    } catch (e) {
-      debugPrint('ApiService: no se pudo leer URL guardada: $e');
-      baseUrl = _defaultBaseUrl;
-    }
+    _baseUrl = urlProduccion;
 
     try {
       final fKey = await _archivoPreferencia(_keyPrefsFileName);
@@ -182,20 +154,11 @@ class ApiService {
       debugPrint('ApiService: no se pudo leer API key guardada: $e');
     }
 
-    final fromEnv = dotenv.env['API_KEY'] ?? const String.fromEnvironment('API_KEY', defaultValue: '');
+    final fromEnv =
+        dotenv.env['API_KEY'] ??
+        const String.fromEnvironment('API_KEY', defaultValue: '');
     if (fromEnv.trim().isNotEmpty) {
       apiKey = fromEnv;
-    }
-  }
-
-  /// Persiste la URL elegida para que sobreviva reinicios de la app.
-  static Future<void> guardarBaseUrl(String value) async {
-    baseUrl = value;
-    try {
-      final f = await _archivoPreferencia(_prefsFileName);
-      await f.writeAsString(_baseUrl);
-    } catch (e) {
-      debugPrint('ApiService: no se pudo guardar URL: $e');
     }
   }
 
@@ -235,15 +198,11 @@ class ApiService {
     try {
       return await accion().timeout(timeout);
     } on TimeoutException {
-      final esEmuladorIp = _baseUrl.contains('10.0.2.2');
       final esRender = _baseUrl.contains('onrender.com');
-      final notaServidor = esEmuladorIp
-          ? '\n\n⚠️ NOTA: Si estás probando en un celular físico, "10.0.2.2" no funciona. '
-              'Debes cambiar el servidor a la IP de tu PC o a tu URL de Render.'
-          : (esRender
-              ? '\n\n⚠️ NOTA: El servidor en Render entra en reposo tras inactividad en el plan gratuito. '
-                  'El primer encendido puede tardar hasta 45-60 segundos. Vuelve a intentar en unos instantes.'
-              : '');
+      final notaServidor = esRender
+          ? '\n\nEl servidor de Render puede tardar unos segundos en activarse '
+                'después de un periodo sin uso. Intenta de nuevo en un momento.'
+          : '';
 
       throw ApiException(
         'El servidor no respondió a tiempo.\n'
@@ -253,16 +212,10 @@ class ApiService {
       );
     } on SocketException catch (e) {
       final detalle = e.osError?.message ?? e.message;
-      final esEmuladorIp = _baseUrl.contains('10.0.2.2');
-      final notaEmulador = esEmuladorIp
-          ? '\n\n⚠️ Si estás en celular físico, "10.0.2.2" es inalcanzable. '
-              'Usa la IP Wi-Fi de tu PC (ej. http://192.168.1.X:3000).'
-          : '';
-
       throw ApiException(
         'No se pudo conectar con el servidor backend.\n'
         'URL: $_baseUrl\n'
-        'Detalle: $detalle$notaEmulador',
+        'Detalle: $detalle',
         esErrorDeConexion: true,
       );
     } on HandshakeException {
@@ -279,24 +232,26 @@ class ApiService {
   }
 
   static Future<dynamic> _get(String path, [Map<String, String>? query]) async {
-    final res = await _enviar(() => http.get(_uri(path, query), headers: _headers()), _timeoutLectura);
+    final res = await _enviar(
+      () => http.get(_uri(path, query), headers: _headers()),
+      _timeoutLectura,
+    );
     return _decodir(res, 'GET $path');
   }
 
   static Future<dynamic> _post(String path, Map<String, dynamic> body) async {
     final res = await _enviar(
-      () => http.post(
-        _uri(path),
-        headers: _headers(),
-        body: jsonEncode(body),
-      ),
+      () => http.post(_uri(path), headers: _headers(), body: jsonEncode(body)),
       _timeoutEscritura,
     );
     return _decodir(res, 'POST $path');
   }
 
   static Future<dynamic> _delete(String path) async {
-    final res = await _enviar(() => http.delete(_uri(path), headers: _headers()), _timeoutLectura);
+    final res = await _enviar(
+      () => http.delete(_uri(path), headers: _headers()),
+      _timeoutLectura,
+    );
     return _decodir(res, 'DELETE $path');
   }
 
@@ -317,13 +272,16 @@ class ApiService {
           statusCode: res.statusCode,
         );
       }
-      throw ApiException('Respuesta inesperada del servidor (${res.statusCode}).');
+      throw ApiException(
+        'Respuesta inesperada del servidor (${res.statusCode}).',
+      );
     }
 
     if (res.statusCode >= 200 && res.statusCode < 300) {
       if (json is Map && json['success'] == false) {
         throw ApiException(
-          (json['message'] ?? json['error'] ?? 'Operación rechazada.').toString(),
+          (json['message'] ?? json['error'] ?? 'Operación rechazada.')
+              .toString(),
           statusCode: res.statusCode,
         );
       }
@@ -360,6 +318,10 @@ class ApiService {
   /// Verifica el backend y el endpoint protegido de libros.
   /// Devuelve `null` si funciona o un mensaje de error para mostrar en la UI.
   static Future<String?> probarConexion() async {
+    if (_baseUrl.isEmpty) {
+      return 'No está configurada la URL de producción del backend.';
+    }
+
     final salud = await consultarSalud();
     if (salud == null) {
       return 'No se pudo contactar con el servidor en $_baseUrl.';
@@ -370,7 +332,8 @@ class ApiService {
 
     try {
       final res = await _enviar(
-        () => http.get(_uri('/api/libros', {'limit': '1'}), headers: _headers()),
+        () =>
+            http.get(_uri('/api/libros', {'limit': '1'}), headers: _headers()),
         const Duration(seconds: 10),
       );
       _decodirRespuestaCruda(res, 'GET /api/libros');
@@ -383,6 +346,7 @@ class ApiService {
   /// Obtiene lista paginada de libros con metadatos de paginación.
   static Future<ResultadoLibrosPaginados> obtenerLibrosPaginados({
     String? busqueda,
+    String campoBusqueda = 'todos',
     int limit = 50,
     int skip = 0,
   }) async {
@@ -391,6 +355,10 @@ class ApiService {
       'skip': '$skip',
       if (busqueda != null && busqueda.trim().isNotEmpty)
         'busqueda': busqueda.trim(),
+      if (busqueda != null &&
+          busqueda.trim().isNotEmpty &&
+          campoBusqueda != 'todos')
+        'campo': campoBusqueda,
     };
 
     final res = await _enviar(
@@ -398,7 +366,9 @@ class ApiService {
       _timeoutLectura,
     );
     final json = _decodirRespuestaCruda(res, 'GET /api/libros');
-    final rawData = json is Map && json.containsKey('data') ? json['data'] : json;
+    final rawData = json is Map && json.containsKey('data')
+        ? json['data']
+        : json;
     final List list = rawData is List ? rawData : const [];
 
     final total = (json is Map && json['total'] != null)
@@ -425,18 +395,20 @@ class ApiService {
   /// Lista de libros (sin páginas, para el listado).
   static Future<List<LibroModel>> obtenerLibros({
     String? busqueda,
+    String campoBusqueda = 'todos',
     int limit = 50,
     int skip = 0,
   }) async {
     final paginado = await obtenerLibrosPaginados(
       busqueda: busqueda,
+      campoBusqueda: campoBusqueda,
       limit: limit,
       skip: skip,
     );
     return paginado.libros;
   }
 
-  /// Transcribe una imagen paleográfica llamando al backend (protegiendo GEMINI_API_KEY).
+  /// Envía temporalmente una imagen al backend para transcribirla; nunca la guarda.
   static Future<String> transcribirImagen(String pathImagen) async {
     final file = File(pathImagen);
     if (!await file.exists()) {
@@ -449,8 +421,8 @@ class ApiService {
     final mimeType = ext == 'png'
         ? 'image/png'
         : ext == 'webp'
-            ? 'image/webp'
-            : 'image/jpeg';
+        ? 'image/webp'
+        : 'image/jpeg';
 
     final res = await _post('/api/transcribir', {
       'imagen': base64Image,
@@ -460,7 +432,9 @@ class ApiService {
     if (res is Map && res['texto'] != null) {
       return res['texto'].toString().trim();
     }
-    throw const ApiException('El backend respondió pero no incluyó texto transcrito.');
+    throw const ApiException(
+      'El backend respondió pero no incluyó texto transcrito.',
+    );
   }
 
   /// Detalle completo de un libro (incluye `paginas`).
@@ -490,17 +464,16 @@ class ApiService {
   /// Falla rápido si el backend no contesta, con un mensaje que dice qué
   /// dirección se intentó y cómo corregirla.
   static Future<void> _verificarAlcanzable() async {
+    if (_baseUrl.isEmpty) {
+      throw const ApiException(
+        'No está configurada la URL de producción del backend.',
+        esErrorDeConexion: true,
+      );
+    }
     if (await consultarSalud() != null) return;
-    final esEmulador = _baseUrl.contains('10.0.2.2');
-    final nota = esEmulador
-        ? '\n\n⚠️ Estás apuntando a "10.0.2.2" (solo para emulador de Android). '
-            'Si estás en un celular físico, pulsa "Cambiar servidor" y usa la IP de tu PC (ej. http://192.168.1.X:3000).'
-        : '';
-
     throw ApiException(
-      'No hay conexión con el backend en:\n$_baseUrl$nota\n\n'
-      'Comprueba que el backend esté ejecutándose en la PC ("npm start" en la carpeta backend) '
-      'y que ambos dispositivos estén en la misma red Wi-Fi.',
+      'No hay conexión con el backend de Render en:\n$_baseUrl\n\n'
+      'Comprueba tu conexión a Internet e intenta de nuevo en unos momentos.',
       esErrorDeConexion: true,
     );
   }
@@ -516,7 +489,9 @@ class ApiService {
         return await accion();
       } on ApiException catch (e) {
         if (!e.esErrorDeConexion || i >= intentos) rethrow;
-        debugPrint('Fallo de red (intento $i/$intentos), reintentando en 2s...');
+        debugPrint(
+          'Fallo de red (intento $i/$intentos), reintentando en 2s...',
+        );
         await Future<void>.delayed(const Duration(seconds: 2));
       }
     }

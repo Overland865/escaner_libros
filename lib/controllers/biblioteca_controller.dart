@@ -15,7 +15,7 @@ enum EstadoCarga { cargando, listo, error }
 /// gestiona la paginación incremental de la biblioteca.
 class BibliotecaController extends ChangeNotifier {
   BibliotecaController({LocalLibraryStore? store})
-      : _store = store ?? LocalLibraryStore() {
+    : _store = store ?? LocalLibraryStore() {
     _sync = SyncService(store: _store);
   }
 
@@ -33,6 +33,7 @@ class BibliotecaController extends ChangeNotifier {
   bool _servidorAlcanzable = true;
   String? _saludMongo;
   String _busqueda = '';
+  String _campoBusqueda = 'todos';
   int _pendientesCount = 0;
   bool _sincronizando = false;
   bool _modoDegradado = false;
@@ -51,6 +52,7 @@ class BibliotecaController extends ChangeNotifier {
   bool get errorEsConexion => _errorEsConexion;
 
   String get busqueda => _busqueda;
+  String get campoBusqueda => _campoBusqueda;
   bool get servidorAlcanzable => _servidorAlcanzable;
   bool get estaVacio => _estado == EstadoCarga.listo && _libros.isEmpty;
 
@@ -68,16 +70,6 @@ class BibliotecaController extends ChangeNotifier {
   bool get hayMas => _hayMas;
   bool get cargandoMas => _cargandoMas;
 
-  /// Años cubiertos por los documentos cargados, para la cabecera de Inicio.
-  int get antiguedadAnios {
-    if (_libros.isEmpty) return 0;
-    final inicios = _libros.map((l) => l.anioInicio).toList()..sort();
-    final fines = _libros.map((l) => l.anioFin).toList()..sort();
-    return fines.last - inicios.first;
-  }
-
-  int get totalTipos => _libros.map((l) => l.tipoLibro).toSet().length;
-
   /// Estado de sync local para un id, o null si solo existe en remoto.
   EstadoSync? estadoLocalDe(String id) => _estadosLocales[id];
 
@@ -89,8 +81,9 @@ class BibliotecaController extends ChangeNotifier {
   }
 
   /// Carga inicial (o reinicio de búsqueda) de la biblioteca paginada.
-  Future<void> cargar({String? busqueda}) async {
+  Future<void> cargar({String? busqueda, String? campoBusqueda}) async {
     if (busqueda != null) _busqueda = busqueda;
+    if (campoBusqueda != null) _campoBusqueda = campoBusqueda;
 
     _estado = EstadoCarga.cargando;
     _error = null;
@@ -104,6 +97,7 @@ class BibliotecaController extends ChangeNotifier {
     try {
       final res = await ApiService.obtenerLibrosPaginados(
         busqueda: _busqueda.isEmpty ? null : _busqueda,
+        campoBusqueda: _campoBusqueda,
         limit: _tamanoPagina,
         skip: 0,
       );
@@ -131,7 +125,12 @@ class BibliotecaController extends ChangeNotifier {
       ..clear()
       ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
 
-    _libros = _mezclar(_remotos, locales, filtro: _busqueda);
+    _libros = _mezclar(
+      _remotos,
+      locales,
+      filtro: _busqueda,
+      campo: _campoBusqueda,
+    );
 
     if (remotoOk) {
       _estado = EstadoCarga.listo;
@@ -153,7 +152,10 @@ class BibliotecaController extends ChangeNotifier {
 
   /// Solicita la siguiente página de libros para carga incremental (scroll infinito).
   Future<void> cargarMas() async {
-    if (_cargandoMas || !_hayMas || _estado != EstadoCarga.listo || _modoDegradado) {
+    if (_cargandoMas ||
+        !_hayMas ||
+        _estado != EstadoCarga.listo ||
+        _modoDegradado) {
       return;
     }
 
@@ -163,6 +165,7 @@ class BibliotecaController extends ChangeNotifier {
     try {
       final res = await ApiService.obtenerLibrosPaginados(
         busqueda: _busqueda.isEmpty ? null : _busqueda,
+        campoBusqueda: _campoBusqueda,
         limit: _tamanoPagina,
         skip: _skip,
       );
@@ -173,7 +176,12 @@ class BibliotecaController extends ChangeNotifier {
       _hayMas = res.hasMore;
 
       final locales = await _store.listarPendientes();
-      _libros = _mezclar(_remotos, locales, filtro: _busqueda);
+      _libros = _mezclar(
+        _remotos,
+        locales,
+        filtro: _busqueda,
+        campo: _campoBusqueda,
+      );
     } catch (e) {
       debugPrint('Error al cargar página adicional: $e');
     } finally {
@@ -186,6 +194,7 @@ class BibliotecaController extends ChangeNotifier {
     List<LibroModel> remotos,
     List<LibroLocal> locales, {
     required String filtro,
+    required String campo,
   }) {
     final map = <String, LibroModel>{};
     for (final r in remotos) {
@@ -193,23 +202,41 @@ class BibliotecaController extends ChangeNotifier {
     }
     // Pendientes locales ganan si mismo id / código.
     for (final l in locales) {
-      if (_coincideBusqueda(l.libro, filtro)) {
+      if (_coincideBusqueda(l.libro, filtro, campo)) {
         map[l.id] = l.libro;
       }
     }
-    return map.values.toList()
-      ..sort((a, b) => a.titulo.toLowerCase().compareTo(b.titulo.toLowerCase()));
+    return map.values.toList()..sort(
+      (a, b) => a.titulo.toLowerCase().compareTo(b.titulo.toLowerCase()),
+    );
   }
 
-  bool _coincideBusqueda(LibroModel libro, String filtro) {
+  bool _coincideBusqueda(LibroModel libro, String filtro, String campo) {
     final q = filtro.trim().toLowerCase();
     if (q.isEmpty) return true;
-    return libro.titulo.toLowerCase().contains(q) ||
-        libro.iglesia.toLowerCase().contains(q) ||
-        libro.isbnOCodigo.toLowerCase().contains(q) ||
-        libro.tipoLibro.toLowerCase().contains(q) ||
-        '${libro.anioInicio}'.contains(q) ||
-        '${libro.anioFin}'.contains(q);
+    switch (campo) {
+      case 'titulo':
+        return libro.titulo.toLowerCase().contains(q);
+      case 'iglesia':
+        return libro.iglesia.toLowerCase().contains(q);
+      case 'autor':
+        return libro.autor.toLowerCase().contains(q);
+      case 'tipo_libro':
+        return libro.tipoLibro.toLowerCase().contains(q);
+      case 'anio':
+        return '${libro.anioInicio}'.contains(q) ||
+            '${libro.anioFin}'.contains(q);
+      case 'isbn_o_codigo':
+        return libro.isbnOCodigo.toLowerCase().contains(q);
+      default:
+        return libro.titulo.toLowerCase().contains(q) ||
+            libro.iglesia.toLowerCase().contains(q) ||
+            libro.autor.toLowerCase().contains(q) ||
+            libro.isbnOCodigo.toLowerCase().contains(q) ||
+            libro.tipoLibro.toLowerCase().contains(q) ||
+            '${libro.anioInicio}'.contains(q) ||
+            '${libro.anioFin}'.contains(q);
+    }
   }
 
   /// Consulta el estado de Atlas sin bloquear la carga de la lista.
@@ -223,8 +250,9 @@ class BibliotecaController extends ChangeNotifier {
   }
 
   /// Búsqueda con rebote para no golpear el backend en cada tecla.
-  void buscar(String texto) {
+  void buscar(String texto, {String? campo}) {
     _busqueda = texto;
+    if (campo != null) _campoBusqueda = campo;
     notifyListeners();
   }
 
@@ -277,6 +305,7 @@ class BibliotecaController extends ChangeNotifier {
     try {
       final res = await ApiService.obtenerLibrosPaginados(
         busqueda: _busqueda.isEmpty ? null : _busqueda,
+        campoBusqueda: _campoBusqueda,
         limit: _tamanoPagina,
         skip: 0,
       );
@@ -290,7 +319,12 @@ class BibliotecaController extends ChangeNotifier {
       _estadosLocales
         ..clear()
         ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
-      _libros = _mezclar(_remotos, locales, filtro: _busqueda);
+      _libros = _mezclar(
+        _remotos,
+        locales,
+        filtro: _busqueda,
+        campo: _campoBusqueda,
+      );
       _estado = EstadoCarga.listo;
       _modoDegradado = false;
       _servidorAlcanzable = true;

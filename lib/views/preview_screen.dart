@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/biblioteca_controller.dart';
 import '../models/libro_local.dart';
 import '../models/libro_model.dart';
-import 'widgets/server_settings_sheet.dart';
+import 'widgets/backend_connection_sheet.dart';
 
 /// Revisión del texto transcrito antes de guardarlo (local + sync si hay red).
 /// Devuelve `true` al navigation si el libro quedó guardado en el dispositivo.
@@ -33,8 +33,9 @@ class _PreviewScreenState extends State<PreviewScreen> {
     });
 
     try {
-      final ResultadoGuardado resultado =
-          await widget.biblioteca.guardarLibro(widget.libro);
+      final ResultadoGuardado resultado = await widget.biblioteca.guardarLibro(
+        widget.libro,
+      );
       if (!mounted) return;
 
       final icono = resultado.sincronizado
@@ -77,14 +78,15 @@ class _PreviewScreenState extends State<PreviewScreen> {
   Widget _badgeMotor(String? motor) {
     final motorTexto = motor ?? 'Desconocido';
     final esGemini = motorTexto.toLowerCase().contains('gemini');
+    final colors = Theme.of(context).colorScheme;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: esGemini ? const Color(0xFFE8EAF6) : Colors.amber.shade50,
+        color: esGemini ? colors.primaryContainer : colors.tertiaryContainer,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: esGemini ? const Color(0xFF3F51B5) : Colors.amber.shade700,
+          color: esGemini ? colors.primary : colors.tertiary,
           width: 0.8,
         ),
       ),
@@ -94,7 +96,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
           Icon(
             esGemini ? Icons.auto_awesome : Icons.document_scanner,
             size: 13,
-            color: esGemini ? const Color(0xFF283593) : Colors.amber.shade900,
+            color: esGemini ? colors.primary : colors.onTertiaryContainer,
           ),
           const SizedBox(width: 4),
           Text(
@@ -102,7 +104,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: esGemini ? const Color(0xFF283593) : Colors.amber.shade900,
+              color: esGemini ? colors.primary : colors.onTertiaryContainer,
             ),
           ),
         ],
@@ -121,11 +123,11 @@ class _PreviewScreenState extends State<PreviewScreen> {
         title: const Text('Revisión de Texto Extraído'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.dns_outlined),
-            tooltip: 'Cambiar servidor backend',
-            onPressed: () => showServerSettingsSheet(
+            icon: const Icon(Icons.cloud_outlined),
+            tooltip: 'Conexión del backend',
+            onPressed: () => showBackendConnectionSheet(
               context,
-              onGuardado: () async => setState(() {}),
+              onRetry: () async => setState(() {}),
             ),
           ),
         ],
@@ -134,7 +136,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             width: double.infinity,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,7 +152,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
                 Text(
                   '${pags(paginas.length)} · $palabras palabras · '
                   '$caracteres caracteres',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -161,9 +166,9 @@ class _PreviewScreenState extends State<PreviewScreen> {
               margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: Theme.of(context).colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.red.shade200),
+                border: Border.all(color: Theme.of(context).colorScheme.error),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,12 +176,21 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.error_outline, size: 20, color: Colors.red.shade700),
+                      Icon(
+                        Icons.error_outline,
+                        size: 20,
+                        color: Colors.red.shade700,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _error!,
-                          style: TextStyle(fontSize: 12, color: Colors.red.shade900),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer,
+                          ),
                         ),
                       ),
                     ],
@@ -185,32 +199,22 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF283593),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () => showServerSettingsSheet(
-                          context,
-                          onGuardado: () async {
-                            setState(() => _error = null);
-                          },
-                        ),
-                        icon: const Icon(Icons.settings, size: 16),
-                        label: const Text('Cambiar servidor', style: TextStyle(fontSize: 12)),
-                      ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red.shade700,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           visualDensity: VisualDensity.compact,
                         ),
                         onPressed: _enviando ? null : _guardar,
                         icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                        label: const Text(
+                          'Reintentar',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
@@ -229,7 +233,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       Expanded(
                         child: Text(
                           'Página ${pag.numeroPagina} (${pag.conteoPalabras} palabras)',
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                       _badgeMotor(pag.motor),
@@ -275,9 +282,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                           ),
                         )
                       : const Icon(Icons.save),
-                  label: Text(
-                    _enviando ? 'Guardando...' : 'Guardar libro',
-                  ),
+                  label: Text(_enviando ? 'Guardando...' : 'Guardar libro'),
                 ),
               ),
             ),
