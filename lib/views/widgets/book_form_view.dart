@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 
 /// Datos del documento a digitalizar.
 class DatosLibroForm {
-  final String codigo;
   final String titulo;
-  final String iglesia;
+  final String autor;
+  final String editorial;
   final String tipoLibro;
   final int anioPublicacion;
 
   const DatosLibroForm({
-    required this.codigo,
     required this.titulo,
-    required this.iglesia,
+    required this.autor,
+    required this.editorial,
     required this.tipoLibro,
     required this.anioPublicacion,
   });
@@ -31,28 +31,38 @@ class _BookFormViewState extends State<BookFormView> {
   final _formKey = GlobalKey<FormState>();
 
   static const tiposDisponibles = [
-    'Bautismos y Defunciones',
-    'Bautismos',
-    'Defunciones',
-    'Matrimonios',
-    'Confirmaciones',
-    'Actas Parroquiales',
-    'Visitas Pastorales',
-    'Documento Histórico General',
+    'Novela',
+    'Cuento',
+    'Poesía',
+    'Ensayo',
+    'Biografía',
+    'Historia',
+    'Ciencia',
+    'Tecnología',
+    'Educación',
+    'Infantil y juvenil',
+    'Cómic y novela gráfica',
+    'Arte y fotografía',
+    'Cocina',
+    'Salud y bienestar',
+    'Religión y espiritualidad',
+    'Desarrollo personal',
+    'Referencia y consulta',
+    'Otro',
   ];
 
-  final _codigoController = TextEditingController();
   final _tituloController = TextEditingController();
-  final _iglesiaController = TextEditingController();
+  final _autorController = TextEditingController();
+  final _editorialController = TextEditingController();
   final _anioPublicacionController = TextEditingController();
 
   String? _tipoLibro;
 
   @override
   void dispose() {
-    _codigoController.dispose();
     _tituloController.dispose();
-    _iglesiaController.dispose();
+    _autorController.dispose();
+    _editorialController.dispose();
     _anioPublicacionController.dispose();
     super.dispose();
   }
@@ -61,9 +71,9 @@ class _BookFormViewState extends State<BookFormView> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     widget.onEnviar(
       DatosLibroForm(
-        codigo: _codigoController.text.trim(),
         titulo: _tituloController.text.trim(),
-        iglesia: _iglesiaController.text.trim(),
+        autor: _autorController.text.trim(),
+        editorial: _editorialController.text.trim(),
         tipoLibro: _tipoLibro!,
         anioPublicacion: int.parse(_anioPublicacionController.text.trim()),
       ),
@@ -78,24 +88,11 @@ class _BookFormViewState extends State<BookFormView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextFormField(
-            controller: _codigoController,
-            textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Código / Identificador Único',
-              hintText: 'Ej. LIB-1850-SAN-001',
-              prefixIcon: Icon(Icons.qr_code),
-              border: OutlineInputBorder(),
-            ),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
             controller: _tituloController,
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
-              labelText: 'Título del Libro',
-              hintText: 'Ej. Libro de Bautismos y Defunciones',
+              labelText: 'Título',
+              hintText: 'Título del libro',
               prefixIcon: Icon(Icons.menu_book),
               border: OutlineInputBorder(),
             ),
@@ -104,22 +101,33 @@ class _BookFormViewState extends State<BookFormView> {
           ),
           const SizedBox(height: 14),
           TextFormField(
-            controller: _iglesiaController,
+            controller: _autorController,
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
-              labelText: 'Parroquia / Iglesia Custodia',
-              hintText: 'Ej. Parroquia San Miguel Arcángel',
-              prefixIcon: Icon(Icons.church),
+              labelText: 'Autor',
+              hintText: 'Nombre del autor',
+              prefixIcon: Icon(Icons.person_outline),
               border: OutlineInputBorder(),
             ),
             validator: (v) =>
                 (v == null || v.trim().isEmpty) ? 'Requerido' : null,
           ),
           const SizedBox(height: 14),
+          TextFormField(
+            controller: _editorialController,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Editorial (opcional)',
+              hintText: 'Nombre de la editorial',
+              prefixIcon: Icon(Icons.business_outlined),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             initialValue: _tipoLibro,
             decoration: const InputDecoration(
-              labelText: 'Tipo de Documento',
+              labelText: 'Género / tipo de libro',
               prefixIcon: Icon(Icons.category),
               border: OutlineInputBorder(),
             ),

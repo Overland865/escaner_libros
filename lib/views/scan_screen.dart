@@ -17,7 +17,8 @@ import 'preview_screen.dart';
 class ScanScreen extends StatefulWidget {
   final String idLibro;
   final String titulo;
-  final String iglesia;
+  final String autor;
+  final String editorial;
   final String tipoLibro;
   final int anioPublicacion;
   final BibliotecaController biblioteca;
@@ -26,7 +27,8 @@ class ScanScreen extends StatefulWidget {
     super.key,
     required this.idLibro,
     required this.titulo,
-    required this.iglesia,
+    required this.autor,
+    required this.editorial,
     required this.tipoLibro,
     required this.anioPublicacion,
     required this.biblioteca,
@@ -242,14 +244,14 @@ class _ScanScreenState extends State<ScanScreen> {
       id: widget.idLibro,
       isbnOCodigo: widget.idLibro,
       titulo: widget.titulo,
-      autor: widget.iglesia,
-      iglesia: widget.iglesia,
+      autor: widget.autor,
+      editorial: widget.editorial,
       tipoLibro: widget.tipoLibro,
       anioInicio: widget.anioPublicacion,
       anioFin: widget.anioPublicacion,
       palabrasClave: [
         widget.tipoLibro.toLowerCase(),
-        widget.iglesia.toLowerCase(),
+        widget.autor.toLowerCase(),
       ],
       paginas: _paginas,
     );

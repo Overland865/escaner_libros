@@ -27,6 +27,7 @@ class BibliotecaController extends ChangeNotifier {
   List<LibroModel> _libros = const [];
   List<LibroModel> _remotos = [];
   final Map<String, EstadoSync> _estadosLocales = {};
+  final Map<String, LibroLocal> _librosLocales = {};
   EstadoCarga _estado = EstadoCarga.cargando;
   String? _error;
   bool _errorEsConexion = false;
@@ -72,6 +73,7 @@ class BibliotecaController extends ChangeNotifier {
 
   /// Estado de sync local para un id, o null si solo existe en remoto.
   EstadoSync? estadoLocalDe(String id) => _estadosLocales[id];
+  String? errorSyncDe(String id) => _librosLocales[id]?.ultimoError;
 
   bool esPendiente(String id) {
     final e = _estadosLocales[id];
@@ -124,6 +126,9 @@ class BibliotecaController extends ChangeNotifier {
     _estadosLocales
       ..clear()
       ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
+    _librosLocales
+      ..clear()
+      ..addEntries(locales.map((l) => MapEntry(l.id, l)));
 
     _libros = _mezclar(
       _remotos,
@@ -217,8 +222,8 @@ class BibliotecaController extends ChangeNotifier {
     switch (campo) {
       case 'titulo':
         return libro.titulo.toLowerCase().contains(q);
-      case 'iglesia':
-        return libro.iglesia.toLowerCase().contains(q);
+      case 'editorial':
+        return libro.editorial.toLowerCase().contains(q);
       case 'autor':
         return libro.autor.toLowerCase().contains(q);
       case 'tipo_libro':
@@ -230,7 +235,7 @@ class BibliotecaController extends ChangeNotifier {
         return libro.isbnOCodigo.toLowerCase().contains(q);
       default:
         return libro.titulo.toLowerCase().contains(q) ||
-            libro.iglesia.toLowerCase().contains(q) ||
+            libro.editorial.toLowerCase().contains(q) ||
             libro.autor.toLowerCase().contains(q) ||
             libro.isbnOCodigo.toLowerCase().contains(q) ||
             libro.tipoLibro.toLowerCase().contains(q) ||
@@ -288,6 +293,9 @@ class BibliotecaController extends ChangeNotifier {
       _estadosLocales
         ..clear()
         ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
+      _librosLocales
+        ..clear()
+        ..addEntries(locales.map((l) => MapEntry(l.id, l)));
 
       if (resultado.exitosos > 0) {
         await _recargarTrasSync();
@@ -319,6 +327,9 @@ class BibliotecaController extends ChangeNotifier {
       _estadosLocales
         ..clear()
         ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
+      _librosLocales
+        ..clear()
+        ..addEntries(locales.map((l) => MapEntry(l.id, l)));
       _libros = _mezclar(
         _remotos,
         locales,

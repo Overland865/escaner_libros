@@ -27,8 +27,12 @@ void main() {
           .initialValue,
       isNull,
     );
+    expect(find.text('Título'), findsOneWidget);
+    expect(find.text('Autor'), findsOneWidget);
+    expect(find.text('Editorial (opcional)'), findsOneWidget);
     expect(find.text('Año de publicación'), findsOneWidget);
-    expect(find.text('Año Inicio'), findsNothing);
-    expect(find.text('Año Fin'), findsNothing);
+    expect(find.text('Código / Identificador Único'), findsNothing);
+    expect(find.text('Parroquia / Iglesia Custodia'), findsNothing);
+    expect(find.text('Bautismos y Defunciones'), findsNothing);
   });
 }

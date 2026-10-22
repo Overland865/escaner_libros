@@ -18,7 +18,7 @@ void main() {
     } catch (_) {
       // sin .env se usa la dirección por defecto
     }
-    ApiService.init();
+    await ApiService.init();
 
     // 10.0.2.2 solo resuelve dentro del emulador de Android. Estas pruebas
     // corren en el escritorio, así que se apunta a localhost.
@@ -38,15 +38,29 @@ void main() {
   });
 
   test('subir, listar, leer y borrar un libro', () async {
-    final autorizarApi = dotenv.env['EJECUTAR_SMOKE_TEST_API'] == 'true' ||
+    final autorizarApi =
+        dotenv.env['EJECUTAR_SMOKE_TEST_API'] == 'true' ||
         const String.fromEnvironment('EJECUTAR_SMOKE_TEST_API') == 'true' ||
         ApiService.baseUrl.contains('localhost') ||
         ApiService.baseUrl.contains('127.0.0.1');
 
     if (!autorizarApi) {
-      print('⏭ Omitido: para prevenir escritura/borrado en entornos remotos, active EJECUTAR_SMOKE_TEST_API=true');
+      print(
+        '⏭ Omitido: para prevenir escritura/borrado en entornos remotos, active EJECUTAR_SMOKE_TEST_API=true',
+      );
       return;
     }
+
+    const username = String.fromEnvironment('SMOKE_APP_USERNAME');
+    const password = String.fromEnvironment('SMOKE_APP_PASSWORD');
+    if (username.isEmpty || password.isEmpty) {
+      print(
+        '⏭ Omitido: el smoke test requiere SMOKE_APP_USERNAME y SMOKE_APP_PASSWORD por --dart-define',
+      );
+      return;
+    }
+
+    await ApiService.validarCredenciales(username, password);
 
     final salud = await ApiService.consultarSalud();
     if (salud == null) {
@@ -60,7 +74,6 @@ void main() {
       isbnOCodigo: id,
       titulo: 'Libro de Prueba Automática',
       autor: 'Parroquia San Miguel',
-      iglesia: 'Parroquia San Miguel',
       tipoLibro: 'Actas Parroquiales',
       anioInicio: 1900,
       anioFin: 1910,
@@ -82,8 +95,10 @@ void main() {
 
     // 2) Listar
     final lista = await ApiService.obtenerLibros(busqueda: 'Prueba Automática');
-    print('LISTAR -> ${lista.length}: '
-        '${lista.map((l) => '${l.id}|${l.isbnOCodigo}').join(', ')}');
+    print(
+      'LISTAR -> ${lista.length}: '
+      '${lista.map((l) => '${l.id}|${l.isbnOCodigo}').join(', ')}',
+    );
     expect(lista.any((l) => l.id == id), isTrue);
 
     // 3) Leer detalle (debe traer las páginas)

@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 Future<void> showBackendConnectionSheet(
   BuildContext context, {
   Future<void> Function()? onRetry,
+  VoidCallback? onLogout,
 }) async {
   var prueba = ApiService.probarConexion();
 
@@ -108,7 +109,7 @@ Future<void> showBackendConnectionSheet(
                           verificando
                               ? 'Verificando conexión...'
                               : conectado
-                              ? 'Backend conectado'
+                              ? 'Credenciales válidas y backend disponible'
                               : error ?? 'No se pudo verificar el backend.',
                           style: TextStyle(
                             color: color,
@@ -137,6 +138,32 @@ Future<void> showBackendConnectionSheet(
                     label: const Text('Reintentar'),
                   ),
                 ),
+                if (onLogout != null) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        try {
+                          await ApiService.cerrarSesion();
+                        } catch (e) {
+                          if (!sheetContext.mounted) return;
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(
+                              content: Text('No se pudo cerrar la sesión: $e'),
+                            ),
+                          );
+                          return;
+                        }
+                        if (!sheetContext.mounted) return;
+                        Navigator.pop(sheetContext);
+                        onLogout();
+                      },
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Desconectar'),
+                    ),
+                  ),
+                ],
               ],
             );
           },

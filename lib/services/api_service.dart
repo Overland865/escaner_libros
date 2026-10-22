@@ -65,23 +65,21 @@ class ApiService {
 
   static const Duration _timeoutLectura = Duration(seconds: 45);
   static const Duration _timeoutEscritura = Duration(seconds: 60);
+  static const Duration _timeoutTranscripcion = Duration(seconds: 150);
+  static const String _legacyApiKeyFileName = 'api_access_key.txt';
 
   static String _baseUrl = '';
-  static String _apiKey = '';
-
-  static const String _keyPrefsFileName = 'api_access_key.txt';
+  static String _username = '';
+  static String _password = '';
+  static VoidCallback? onAuthenticationRequired;
 
   /// Dirección base del backend, sin barra final y sin el sufijo `/api/libros`.
   static String get baseUrl => _baseUrl;
 
   static set baseUrl(String value) => _baseUrl = normalizarUrl(value);
 
-  /// Clave de autenticación API / Bearer token.
-  static String get apiKey => _apiKey;
-
-  static set apiKey(String value) {
-    _apiKey = _limpiarComillas(value);
-  }
+  static bool get tieneCredenciales =>
+      _username.isNotEmpty && _password.isNotEmpty;
 
   /// URL del backend desplegado (`.env` → `API_BASE_URL`).
   /// Si aún es un placeholder o está vacía, [tieneUrlProduccion] es false.
@@ -131,62 +129,72 @@ class ApiService {
     return v;
   }
 
-  static Future<File> _archivoPreferencia(String nombre) async {
-    final docs = await getApplicationDocumentsDirectory();
-    return File(p.join(docs.path, nombre));
-  }
-
-  /// Carga la URL de Render y la clave API del `.env` o de las preferencias.
-  /// Llamar una vez desde `main()` después de cargar dotenv.
+  /// Carga la URL del backend; las credenciales no se persisten.
   static Future<void> init() async {
     _baseUrl = urlProduccion;
+    _username = '';
+    _password = '';
+    await _eliminarClaveLegada();
+  }
 
+  static Future<void> _eliminarClaveLegada() async {
+    if (kIsWeb) return;
     try {
-      final fKey = await _archivoPreferencia(_keyPrefsFileName);
-      if (await fKey.exists()) {
-        final guardada = (await fKey.readAsString()).trim();
-        if (guardada.isNotEmpty) {
-          apiKey = guardada;
-          return;
-        }
-      }
+      final docs = await getApplicationDocumentsDirectory();
+      final legacyFile = File(p.join(docs.path, _legacyApiKeyFileName));
+      if (await legacyFile.exists()) await legacyFile.delete();
     } catch (e) {
-      debugPrint('ApiService: no se pudo leer API key guardada: $e');
-    }
-
-    final fromEnv =
-        dotenv.env['API_KEY'] ??
-        const String.fromEnvironment('API_KEY', defaultValue: '');
-    if (fromEnv.trim().isNotEmpty) {
-      apiKey = fromEnv;
+      debugPrint('ApiService: no se pudo eliminar la clave antigua guardada: $e');
     }
   }
 
-  /// Persiste la clave API / Token para que sobreviva reinicios de la app.
-  static Future<void> guardarApiKey(String value) async {
-    apiKey = value;
+  static Future<void> validarCredenciales(String username, String password) async {
+    _username = username.trim();
+    _password = password;
     try {
-      final f = await _archivoPreferencia(_keyPrefsFileName);
-      await f.writeAsString(_apiKey);
-    } catch (e) {
-      debugPrint('ApiService: no se pudo guardar API key: $e');
+      final res = await _enviar(
+        () => http.get(_uri('/api/auth/check'), headers: _headers()),
+        _timeoutLectura,
+      );
+      _decodirRespuestaCruda(
+        res,
+        'GET /api/auth/check',
+        invalidarCredenciales401: false,
+      );
+    } catch (_) {
+      _username = '';
+      _password = '';
+      rethrow;
     }
+  }
+
+  static Future<void> cerrarSesion() async {
+    _username = '';
+    _password = '';
+  }
+
+  static void _invalidarCredenciales() {
+    if (!tieneCredenciales) return;
+    _username = '';
+    _password = '';
+    onAuthenticationRequired?.call();
   }
 
   static Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse('$_baseUrl$path').replace(queryParameters: query);
 
-  static Map<String, String> _headers([Map<String, String>? adicionales]) {
+  static Map<String, String> _headers({
+    Map<String, String>? adicionales,
+    bool incluirAutenticacion = true,
+  }) {
     final h = <String, String>{
       'Content-Type': 'application/json; charset=utf-8',
     };
-    if (_apiKey.isNotEmpty) {
-      h['X-API-Key'] = _apiKey;
-      h['Authorization'] = 'Bearer $_apiKey';
+    if (incluirAutenticacion && tieneCredenciales) {
+      h['Authorization'] =
+          'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
     }
-    if (adicionales != null) {
-      h.addAll(adicionales);
-    }
+    if (adicionales != null) h.addAll(adicionales);
     return h;
   }
 
@@ -239,12 +247,26 @@ class ApiService {
     return _decodir(res, 'GET $path');
   }
 
-  static Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+  static Future<dynamic> _post(
+    String path,
+    Map<String, dynamic> body, {
+    Duration? timeout,
+    bool incluirAutenticacion = true,
+    bool invalidarCredenciales401 = true,
+  }) async {
     final res = await _enviar(
-      () => http.post(_uri(path), headers: _headers(), body: jsonEncode(body)),
-      _timeoutEscritura,
+      () => http.post(
+        _uri(path),
+        headers: _headers(incluirAutenticacion: incluirAutenticacion),
+        body: jsonEncode(body),
+      ),
+      timeout ?? _timeoutEscritura,
     );
-    return _decodir(res, 'POST $path');
+    return _decodir(
+      res,
+      'POST $path',
+      invalidarCredenciales401: invalidarCredenciales401,
+    );
   }
 
   static Future<dynamic> _delete(String path) async {
@@ -255,7 +277,11 @@ class ApiService {
     return _decodir(res, 'DELETE $path');
   }
 
-  static dynamic _decodirRespuestaCruda(http.Response res, String contexto) {
+  static dynamic _decodirRespuestaCruda(
+    http.Response res,
+    String contexto, {
+    bool invalidarCredenciales401 = true,
+  }) {
     dynamic json;
     try {
       json = jsonDecode(utf8.decode(res.bodyBytes));
@@ -288,16 +314,26 @@ class ApiService {
       return json;
     }
 
-    final mensaje = (json is Map)
+    final mensaje = json is Map
         ? (json['message'] ?? json['error'] ?? 'Error ${res.statusCode}')
         : 'Error ${res.statusCode}';
     debugPrint('$contexto falló: $mensaje');
+    if (res.statusCode == 401 && invalidarCredenciales401) {
+      _invalidarCredenciales();
+    }
     throw ApiException(mensaje.toString(), statusCode: res.statusCode);
   }
 
-  /// Normaliza la respuesta: devuelve `data` y convierte `success:false` en error.
-  static dynamic _decodir(http.Response res, String contexto) {
-    final json = _decodirRespuestaCruda(res, contexto);
+  static dynamic _decodir(
+    http.Response res,
+    String contexto, {
+    bool invalidarCredenciales401 = true,
+  }) {
+    final json = _decodirRespuestaCruda(
+      res,
+      contexto,
+      invalidarCredenciales401: invalidarCredenciales401,
+    );
     return json is Map && json.containsKey('data') ? json['data'] : json;
   }
 
@@ -427,7 +463,7 @@ class ApiService {
     final res = await _post('/api/transcribir', {
       'imagen': base64Image,
       'mimeType': mimeType,
-    });
+    }, timeout: _timeoutTranscripcion);
 
     if (res is Map && res['texto'] != null) {
       return res['texto'].toString().trim();

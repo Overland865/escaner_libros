@@ -6,11 +6,15 @@ import '../services/api_service.dart';
 class BookDetailScreen extends StatefulWidget {
   final String idLibro;
   final String titulo;
+  final LibroModel? libroLocal;
+  final String? errorSync;
 
   const BookDetailScreen({
     super.key,
     required this.idLibro,
     required this.titulo,
+    this.libroLocal,
+    this.errorSync,
   });
 
   @override
@@ -18,14 +22,19 @@ class BookDetailScreen extends StatefulWidget {
 }
 
 class _BookDetailScreenState extends State<BookDetailScreen> {
-  bool _cargando = true;
+  bool _cargando = false;
   LibroModel? _libro;
   String? _error;
+  String? _errorSync;
 
   @override
   void initState() {
     super.initState();
-    _cargarDetalle();
+    _libro = widget.libroLocal;
+    _errorSync = widget.errorSync;
+    if (widget.libroLocal == null) {
+      _cargarDetalle();
+    }
   }
 
   Future<void> _cargarDetalle() async {
@@ -102,7 +111,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       appBar: AppBar(
         title: Text(widget.titulo, style: const TextStyle(fontSize: 18)),
         actions: [
-          if (_libro != null)
+          if (_libro != null && widget.libroLocal == null)
             IconButton(
               icon: const Icon(Icons.delete_outline),
               tooltip: 'Eliminar documento',
@@ -147,6 +156,34 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (widget.libroLocal != null) ...[
+          Card(
+            color: colors.tertiaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Guardado en este dispositivo; aún no está en el servidor.',
+                    style: TextStyle(
+                      color: colors.onTertiaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (_errorSync != null) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      'Error de subida: $_errorSync',
+                      style: TextStyle(color: colors.onTertiaryContainer),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Card(
           elevation: 1,
           shape: RoundedRectangleBorder(
@@ -167,19 +204,38 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.church, size: 18, color: colors.primary),
+                    Icon(Icons.person_outline, size: 18, color: colors.primary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        libro.iglesia.isNotEmpty
-                            ? libro.iglesia
-                            : 'Parroquia no especificada',
+                        libro.autor.isNotEmpty
+                            ? 'Autor: ${libro.autor}'
+                            : 'Autor no especificado',
                         style: TextStyle(color: colors.onSurface),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
+                if (libro.editorial.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.business_outlined,
+                        size: 18,
+                        color: colors.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Editorial: ${libro.editorial}',
+                          style: TextStyle(color: colors.onSurface),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 Row(
                   children: [
                     Icon(Icons.calendar_month, size: 18, color: colors.primary),
@@ -212,11 +268,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                       '${paginas.length}',
                       Icons.auto_stories,
                     ),
-                    _metricItem(
-                      'Identificador',
-                      libro.isbnOCodigo,
-                      Icons.fingerprint,
-                    ),
+                    _metricItem('Año', '${libro.anioInicio}', Icons.event),
                   ],
                 ),
               ],

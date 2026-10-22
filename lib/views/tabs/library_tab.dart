@@ -133,17 +133,16 @@ class _LibraryTabState extends State<LibraryTab> {
                     child: Text('Todos los campos'),
                   ),
                   DropdownMenuItem(value: 'titulo', child: Text('Título')),
-                  DropdownMenuItem(value: 'iglesia', child: Text('Parroquia')),
+                  DropdownMenuItem(
+                    value: 'editorial',
+                    child: Text('Editorial'),
+                  ),
                   DropdownMenuItem(value: 'autor', child: Text('Autor')),
                   DropdownMenuItem(
                     value: 'tipo_libro',
                     child: Text('Tipo de libro'),
                   ),
                   DropdownMenuItem(value: 'anio', child: Text('Año')),
-                  DropdownMenuItem(
-                    value: 'isbn_o_codigo',
-                    child: Text('Código'),
-                  ),
                 ],
                 onChanged: (campo) {
                   if (campo != null) {
@@ -396,7 +395,11 @@ class _LibraryTabState extends State<LibraryTab> {
           }
 
           final libro = b.libros[indiceLibro];
-          return BookCard(libro: libro, pendiente: b.esPendiente(libro.id));
+          return BookCard(
+            libro: libro,
+            pendiente: b.esPendiente(libro.id),
+            errorSync: b.errorSyncDe(libro.id),
+          );
         },
       ),
     );

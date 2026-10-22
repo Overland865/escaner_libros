@@ -5,7 +5,7 @@ class LibroModel {
   final String isbnOCodigo;
   final String titulo;
   final String autor;
-  final String iglesia;
+  final String editorial;
   final String tipoLibro;
   final int anioInicio;
   final int anioFin;
@@ -17,7 +17,7 @@ class LibroModel {
     required this.isbnOCodigo,
     required this.titulo,
     required this.autor,
-    required this.iglesia,
+    this.editorial = '',
     required this.tipoLibro,
     required this.anioInicio,
     required this.anioFin,
@@ -33,11 +33,11 @@ class LibroModel {
       'isbn_o_codigo': isbnOCodigo,
       'titulo': titulo,
       'autor': autor,
-      'iglesia': iglesia,
+      if (editorial.isNotEmpty) 'editorial': editorial,
       'tipo_libro': tipoLibro,
       'periodo': {'anio_inicio': anioInicio, 'anio_fin': anioFin},
       'idioma': 'es',
-      'categoria': 'Documento Histórico Eclesiástico',
+      'categoria': 'Libro',
       'palabras_clave': palabrasClave,
       'caracteres_totales': totalCaracteres,
       'fecha_procesamiento': DateTime.now().toUtc().toIso8601String(),
@@ -78,10 +78,11 @@ class LibroModel {
 
     return LibroModel(
       id: json['_id'] as String? ?? json['isbn_o_codigo'] as String? ?? '',
-      isbnOCodigo: json['isbn_o_codigo'] as String? ?? json['_id'] as String? ?? '',
+      isbnOCodigo:
+          json['isbn_o_codigo'] as String? ?? json['_id'] as String? ?? '',
       titulo: json['titulo'] as String? ?? 'Sin Título',
       autor: json['autor'] as String? ?? '',
-      iglesia: json['iglesia'] as String? ?? '',
+      editorial: json['editorial'] as String? ?? '',
       tipoLibro: json['tipo_libro'] as String? ?? 'General',
       anioInicio: anioInicio,
       anioFin: anioFin,

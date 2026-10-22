@@ -6,8 +6,14 @@ import '../book_detail_screen.dart';
 class BookCard extends StatelessWidget {
   final LibroModel libro;
   final bool pendiente;
+  final String? errorSync;
 
-  const BookCard({super.key, required this.libro, this.pendiente = false});
+  const BookCard({
+    super.key,
+    required this.libro,
+    this.pendiente = false,
+    this.errorSync,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,22 +27,15 @@ class BookCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
-          if (pendiente) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Este libro aún no está en el servidor. '
-                  'Sincronízalo desde Inicio para ver el detalle completo.',
-                ),
-              ),
-            );
-            return;
-          }
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  BookDetailScreen(idLibro: libro.id, titulo: libro.titulo),
+              builder: (_) => BookDetailScreen(
+                idLibro: libro.id,
+                titulo: libro.titulo,
+                libroLocal: pendiente ? libro : null,
+                errorSync: errorSync,
+              ),
             ),
           );
         },
@@ -75,9 +74,9 @@ class BookCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          libro.iglesia.isNotEmpty
-                              ? libro.iglesia
-                              : 'Parroquia no especificada',
+                          libro.autor.isNotEmpty
+                              ? libro.autor
+                              : 'Autor no especificado',
                           style: TextStyle(
                             fontSize: 13,
                             color: colors.onSurfaceVariant,
@@ -99,6 +98,11 @@ class BookCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     label: Text(libro.tipoLibro),
                   ),
+                  if (libro.editorial.isNotEmpty)
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(libro.editorial),
+                    ),
                   if (pendiente)
                     Chip(
                       visualDensity: VisualDensity.compact,

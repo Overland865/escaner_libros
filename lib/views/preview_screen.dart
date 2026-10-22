@@ -264,27 +264,29 @@ class _PreviewScreenState extends State<PreviewScreen> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: _enviando ? null : _guardar,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF283593),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: _enviando
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.save),
-                  label: Text(_enviando ? 'Guardando...' : 'Guardar libro'),
-                ),
-              ),
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _enviando ? null : _guardar,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF283593),
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: _enviando
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.save),
+                        label: Text(
+                          _enviando ? 'Guardando...' : 'Guardar libro',
+                        ),
+                      ),
+                    ),
             ),
           ),
         ],

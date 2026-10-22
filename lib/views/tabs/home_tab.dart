@@ -68,6 +68,7 @@ class HomeTab extends StatelessWidget {
                   (libro) => BookCard(
                     libro: libro,
                     pendiente: biblioteca.esPendiente(libro.id),
+                    errorSync: biblioteca.errorSyncDe(libro.id),
                   ),
                 ),
             ],
