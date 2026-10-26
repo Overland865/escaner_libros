@@ -40,5 +40,30 @@ class PaginaModel {
       motor: json['motor_transcripcion'] as String? ?? json['motor'] as String?,
     );
   }
+
+  static int contarPalabras(String texto) {
+    final t = texto.trim();
+    if (t.isEmpty) return 0;
+    return t.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).length;
+  }
+
+  PaginaModel copyWith({
+    int? numeroPagina,
+    String? nombreArchivo,
+    int? conteoPalabras,
+    String? texto,
+    double? confianza,
+    String? motor,
+  }) {
+    final nuevoTexto = texto ?? this.texto;
+    return PaginaModel(
+      numeroPagina: numeroPagina ?? this.numeroPagina,
+      nombreArchivo: nombreArchivo ?? this.nombreArchivo,
+      conteoPalabras: conteoPalabras ?? (texto != null ? contarPalabras(nuevoTexto) : this.conteoPalabras),
+      texto: nuevoTexto,
+      confianza: confianza ?? this.confianza,
+      motor: motor ?? this.motor,
+    );
+  }
 }
 

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/libro_model.dart';
 import '../services/api_service.dart';
+import '../services/local_user_preferences_store.dart';
+import 'reading_mode_screen.dart';
 
 class BookDetailScreen extends StatefulWidget {
   final String idLibro;
@@ -22,19 +24,36 @@ class BookDetailScreen extends StatefulWidget {
 }
 
 class _BookDetailScreenState extends State<BookDetailScreen> {
+  final LocalUserPreferencesStore _prefs = LocalUserPreferencesStore();
   bool _cargando = false;
   LibroModel? _libro;
   String? _error;
   String? _errorSync;
+  ProgresoLectura? _progreso;
+  bool _esFavorito = false;
 
   @override
   void initState() {
     super.initState();
     _libro = widget.libroLocal;
     _errorSync = widget.errorSync;
+    _cargarPreferencias();
     if (widget.libroLocal == null) {
       _cargarDetalle();
     }
+  }
+
+  Future<void> _cargarPreferencias() async {
+    try {
+      final prog = await _prefs.obtenerProgreso(widget.idLibro);
+      final fav = await _prefs.esFavorito(widget.idLibro);
+      if (mounted) {
+        setState(() {
+          _progreso = prog;
+          _esFavorito = fav;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _cargarDetalle() async {
@@ -105,12 +124,49 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
     }
   }
 
+  Future<void> _abrirModoLectura(LibroModel libro, {int desde = 0}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReadingModeScreen(
+          libro: libro,
+          idLibro: widget.idLibro,
+          paginaInicial: desde,
+        ),
+      ),
+    );
+    if (mounted) {
+      await _cargarPreferencias();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.titulo, style: const TextStyle(fontSize: 18)),
         actions: [
+          IconButton(
+            icon: Icon(
+              _esFavorito ? Icons.star_rounded : Icons.star_border_rounded,
+              color: _esFavorito ? const Color(0xFFF59E0B) : const Color(0xFF9499B3),
+            ),
+            tooltip: _esFavorito ? 'Quitar de favoritos' : 'Marcar como favorito',
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nuevoFav = await _prefs.alternarFavorito(widget.idLibro);
+              if (!mounted) return;
+              setState(() => _esFavorito = nuevoFav);
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    nuevoFav ? 'Libro agregado a favoritos ⭐' : 'Libro eliminado de favoritos',
+                  ),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
           if (_libro != null && widget.libroLocal == null)
             IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -151,143 +207,275 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   Widget _construirDetalle() {
     final libro = _libro!;
     final paginas = libro.paginas;
-    final colors = Theme.of(context).colorScheme;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (widget.libroLocal != null) ...[
-          Card(
-            color: colors.tertiaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Guardado en este dispositivo; aún no está en el servidor.',
-                    style: TextStyle(
-                      color: colors.onTertiaryContainer,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (_errorSync != null) ...[
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      'Error de subida: $_errorSync',
-                      style: TextStyle(color: colors.onTertiaryContainer),
-                    ),
-                  ],
-                ],
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1912),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.amber.shade700.withValues(alpha: 0.5),
+                width: 1.1,
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  libro.titulo,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.person_outline, size: 18, color: colors.primary),
-                    const SizedBox(width: 6),
+                    Icon(Icons.cloud_off_rounded, color: Colors.amber.shade300, size: 20),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        libro.autor.isNotEmpty
-                            ? 'Autor: ${libro.autor}'
-                            : 'Autor no especificado',
-                        style: TextStyle(color: colors.onSurface),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                if (libro.editorial.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.business_outlined,
-                        size: 18,
-                        color: colors.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Editorial: ${libro.editorial}',
-                          style: TextStyle(color: colors.onSurface),
+                        'Guardado en este dispositivo; aún no está en el servidor.',
+                        style: TextStyle(
+                          color: Colors.amber.shade200,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+                if (_errorSync != null) ...[
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    'Error de subida: $_errorSync',
+                    style: const TextStyle(color: Color(0xFFC7BBA8), fontSize: 12),
                   ),
-                  const SizedBox(height: 6),
                 ],
-                Row(
-                  children: [
-                    Icon(Icons.calendar_month, size: 18, color: colors.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      libro.anioInicio == libro.anioFin
-                          ? 'Año de publicación: ${libro.anioInicio}'
-                          : 'Periodo: ${libro.anioInicio} - ${libro.anioFin}',
-                      style: TextStyle(color: colors.onSurface),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(Icons.category, size: 18, color: colors.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Tipo: ${libro.tipoLibro}',
-                      style: TextStyle(color: colors.onSurface),
-                    ),
-                  ],
-                ),
-                const Divider(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _metricItem(
-                      'Páginas',
-                      '${paginas.length}',
-                      Icons.auto_stories,
-                    ),
-                    _metricItem('Año', '${libro.anioInicio}', Icons.event),
-                  ],
-                ),
               ],
             ),
           ),
+          const SizedBox(height: 14),
+        ],
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF141724),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFF26293A), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      libro.titulo,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFF1F0FB),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.person_rounded, size: 18, color: Color(0xFF818CF8)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      libro.autor.isNotEmpty
+                          ? 'Autor: ${libro.autor}'
+                          : 'Autor no especificado',
+                      style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
+                    ),
+                  ),
+                ],
+              ),
+              if (libro.editorial.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.business_rounded, size: 18, color: Color(0xFF38BDF8)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Editorial: ${libro.editorial}',
+                        style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFFA855F7)),
+                  const SizedBox(width: 8),
+                  Text(
+                    libro.anioInicio == libro.anioFin
+                        ? 'Año de publicación: ${libro.anioInicio}'
+                        : 'Periodo: ${libro.anioInicio} - ${libro.anioFin}',
+                    style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.category_rounded, size: 18, color: Color(0xFF34D399)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Tipo: ${libro.tipoLibro}',
+                    style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
+                  ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Divider(color: Color(0xFF26293A), height: 1),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _metricItem(
+                      'Páginas',
+                      '${paginas.length}',
+                      Icons.auto_stories_rounded,
+                      const Color(0xFF818CF8),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _metricItem(
+                      'Año',
+                      '${libro.anioInicio}',
+                      Icons.event_rounded,
+                      const Color(0xFF38BDF8),
+                    ),
+                  ),
+                ],
+              ),
+              if (_progreso != null && _progreso!.totalPaginas > 0) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Divider(color: Color(0xFF26293A), height: 1),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Progreso de lectura',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFC6BFFF),
+                          ),
+                        ),
+                        Text(
+                          'Página ${_progreso!.ultimaPagina + 1} de ${_progreso!.totalPaginas} (${_progreso!.porcentajeEntero}%)',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF9499B3),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: _progreso!.porcentaje,
+                        minHeight: 6,
+                        backgroundColor: const Color(0xFF222638),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
-        const Text(
-          'Páginas Digitalizadas',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Páginas Digitalizadas',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF1F0FB),
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+            if (paginas.isNotEmpty)
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: FilledButton.icon(
+                  onPressed: () => _abrirModoLectura(
+                    libro,
+                    desde: (_progreso != null && _progreso!.ultimaPagina > 0)
+                        ? _progreso!.ultimaPagina
+                        : 0,
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                  icon: Icon(
+                    (_progreso != null && _progreso!.ultimaPagina > 0)
+                        ? Icons.play_arrow_rounded
+                        : Icons.chrome_reader_mode_outlined,
+                    size: 18,
+                  ),
+                  label: Text(
+                    (_progreso != null && _progreso!.ultimaPagina > 0)
+                        ? 'Continuar (Pág. ${_progreso!.ultimaPagina + 1})'
+                        : 'Modo lectura',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+          ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         if (paginas.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
                 'No hay páginas registradas para este documento.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: Color(0xFF8B8FA8)),
               ),
             ),
           )
@@ -295,33 +483,85 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
           ...paginas.map(
             (pag) => Card(
               margin: const EdgeInsets.only(bottom: 12),
+              color: const Color(0xFF141724),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(14),
+                side: const BorderSide(color: Color(0xFF26293A)),
               ),
               child: ExpansionTile(
-                leading: CircleAvatar(
-                  backgroundColor: colors.primaryContainer,
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
                   child: Text(
                     '${pag.numeroPagina}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: colors.onPrimaryContainer,
+                      color: Colors.white,
+                      fontSize: 13,
                     ),
                   ),
                 ),
-                title: Text('Página ${pag.numeroPagina}'),
-                subtitle: Text('${pag.conteoPalabras} palabras transcritas'),
+                title: Text(
+                  'Página ${pag.numeroPagina}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF1F0FB),
+                  ),
+                ),
+                subtitle: Text(
+                  '${pag.conteoPalabras} palabras transcritas',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF8B8FA8)),
+                ),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D0E15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF222536)),
+                    ),
                     child: SelectableText(
                       pag.texto.trim().isEmpty
                           ? '[Sin texto transcrito]'
                           : pag.texto,
                       style: const TextStyle(
                         fontFamily: 'serif',
-                        fontSize: 14,
-                        height: 1.5,
+                        fontSize: 13.5,
+                        height: 1.55,
+                        color: Color(0xFFE2E0EE),
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8, bottom: 6),
+                      child: TextButton.icon(
+                        onPressed: () => _abrirModoLectura(
+                          libro,
+                          desde: paginas.indexOf(pag),
+                        ),
+                        icon: const Icon(Icons.fullscreen_rounded, size: 18, color: Color(0xFF818CF8)),
+                        label: const Text(
+                          'Leer desde aquí',
+                          style: TextStyle(color: Color(0xFF818CF8), fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                   ),
@@ -333,17 +573,39 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
     );
   }
 
-  Widget _metricItem(String label, String value, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, color: const Color(0xFF3F51B5), size: 22),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-        ),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
+  Widget _metricItem(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B1E30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF2A2F4A)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Color(0xFFF1F0FB),
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF8B8FA8)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

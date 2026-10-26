@@ -46,6 +46,7 @@ class _ScanScreenState extends State<ScanScreen> {
 
   bool _procesando = false;
   bool _saliendo = false;
+  bool _mostrarGuia = true;
   String _mensaje = 'Digitalizando y transcribiendo página...';
 
   @override
@@ -364,11 +365,35 @@ class _ScanScreenState extends State<ScanScreen> {
             child: CameraPreview(camara),
           ),
         ),
+        if (_mostrarGuia) const _GuiaEncuadreLibro(),
         Positioned(top: 16, left: 16, child: const _IndicadorTranscripcion()),
         Positioned(
           top: 16,
           right: 16,
-          child: _ContadorPaginas(cantidad: _paginas.length),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: IconButton(
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                  tooltip: _mostrarGuia ? 'Ocultar guía' : 'Mostrar guía',
+                  icon: Icon(
+                    _mostrarGuia ? Icons.crop_free : Icons.crop,
+                    color: _mostrarGuia ? const Color(0xFF6366F1) : Colors.white70,
+                    size: 18,
+                  ),
+                  onPressed: () => setState(() => _mostrarGuia = !_mostrarGuia),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _ContadorPaginas(cantidad: _paginas.length),
+            ],
+          ),
         ),
         Positioned(
           bottom: 0,
@@ -400,7 +425,7 @@ class _ScanScreenState extends State<ScanScreen> {
                   backgroundColor: Colors.white,
                   child: const Icon(
                     Icons.camera_alt,
-                    color: Color(0xFF1A237E),
+                    color: Color(0xFF6366F1),
                     size: 32,
                   ),
                 ),
@@ -542,4 +567,118 @@ class _IndicadorTranscripcion extends StatelessWidget {
       ),
     );
   }
+}
+
+class _GuiaEncuadreLibro extends StatelessWidget {
+  const _GuiaEncuadreLibro();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const marginH = 28.0;
+          const marginTop = 74.0;
+          const marginBottom = 124.0;
+          final rect = Rect.fromLTWH(
+            marginH,
+            marginTop,
+            constraints.maxWidth - (marginH * 2),
+            constraints.maxHeight - marginTop - marginBottom,
+          );
+
+          return CustomPaint(
+            size: Size(constraints.maxWidth, constraints.maxHeight),
+            painter: _BookFramingPainter(rect: rect),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: marginTop + 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.6),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.center_focus_strong, color: Color(0xFF818CF8), size: 14),
+                          SizedBox(width: 6),
+                          Text(
+                            'Alinea la página aquí',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _BookFramingPainter extends CustomPainter {
+  final Rect rect;
+  _BookFramingPainter({required this.rect});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()..color = Colors.black.withValues(alpha: 0.3);
+    final bgPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    final framePath = Path()
+      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)));
+    final cutPath = Path.combine(PathOperation.difference, bgPath, framePath);
+    canvas.drawPath(cutPath, bgPaint);
+
+    final borderPaint = Paint()
+      ..color = const Color(0xFF6366F1).withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), borderPaint);
+
+    final cornerPaint = Paint()
+      ..color = const Color(0xFF818CF8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+
+    const cornerLen = 26.0;
+    // Top-Left
+    canvas.drawLine(Offset(rect.left, rect.top + cornerLen), Offset(rect.left, rect.top), cornerPaint);
+    canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left + cornerLen, rect.top), cornerPaint);
+
+    // Top-Right
+    canvas.drawLine(Offset(rect.right - cornerLen, rect.top), Offset(rect.right, rect.top), cornerPaint);
+    canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right, rect.top + cornerLen), cornerPaint);
+
+    // Bottom-Left
+    canvas.drawLine(Offset(rect.left, rect.bottom - cornerLen), Offset(rect.left, rect.bottom), cornerPaint);
+    canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left + cornerLen, rect.bottom), cornerPaint);
+
+    // Bottom-Right
+    canvas.drawLine(Offset(rect.right - cornerLen, rect.bottom), Offset(rect.right, rect.bottom), cornerPaint);
+    canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right, rect.bottom - cornerLen), cornerPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BookFramingPainter oldDelegate) => oldDelegate.rect != rect;
 }

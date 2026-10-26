@@ -32,7 +32,9 @@ class SyncService {
 
   /// Recorre la cola y sube cada pendiente. Si el backend no responde,
   /// no vacía la cola: solo reporta `sinConexion`.
-  Future<ResultadoSync> sincronizarPendientes() async {
+  Future<ResultadoSync> sincronizarPendientes({
+    void Function(int actual, int total)? onProgreso,
+  }) async {
     final pendientes = await _store.listarPendientes();
     if (pendientes.isEmpty) {
       return const ResultadoSync(
@@ -43,7 +45,7 @@ class SyncService {
       );
     }
 
-    final salud = await ApiService.consultarSalud();
+    final salud = await ApiService.consultarSaludConReintento();
     if (salud == null || salud['servidor'] != 'ok') {
       return ResultadoSync(
         intentados: pendientes.length,
@@ -55,8 +57,11 @@ class SyncService {
 
     var exitosos = 0;
     var fallidos = 0;
+    final total = pendientes.length;
 
-    for (final entry in pendientes) {
+    for (var i = 0; i < total; i++) {
+      final entry = pendientes[i];
+      onProgreso?.call(i + 1, total);
       await _store.marcarEstado(entry.id, EstadoSync.sincronizando);
       try {
         await ApiService.subirLibroEscaneado(entry.libro);
@@ -74,7 +79,7 @@ class SyncService {
     }
 
     return ResultadoSync(
-      intentados: pendientes.length,
+      intentados: total,
       exitosos: exitosos,
       fallidos: fallidos,
       sinConexion: false,

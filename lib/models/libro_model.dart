@@ -28,19 +28,28 @@ class LibroModel {
   Map<String, dynamic> toJson() {
     int totalCaracteres = paginas.fold(0, (sum, p) => sum + p.texto.length);
 
+    final ahora = DateTime.now().toUtc().toIso8601String();
+
     return {
       '_id': id,
       'isbn_o_codigo': isbnOCodigo,
+      // Campos exigidos por el validador de la colección de Atlas:
+      // titulo, autor, isbn, editorial, categorias, idioma, fecha_actualizacion.
+      'isbn': isbnOCodigo,
       'titulo': titulo,
       'autor': autor,
-      if (editorial.isNotEmpty) 'editorial': editorial,
+      'editorial': editorial,
+      'categorias': [tipoLibro],
+      'anio_publicacion': anioInicio,
+      'total_paginas': paginas.length,
+      'fecha_actualizacion': ahora,
       'tipo_libro': tipoLibro,
       'periodo': {'anio_inicio': anioInicio, 'anio_fin': anioFin},
       'idioma': 'es',
       'categoria': 'Libro',
       'palabras_clave': palabrasClave,
       'caracteres_totales': totalCaracteres,
-      'fecha_procesamiento': DateTime.now().toUtc().toIso8601String(),
+      'fecha_procesamiento': ahora,
       'capitulos': [
         {
           'numero': 1,

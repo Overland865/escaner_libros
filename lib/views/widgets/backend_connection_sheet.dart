@@ -12,8 +12,10 @@ Future<void> showBackendConnectionSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    backgroundColor: const Color(0xFF141724),
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      side: BorderSide(color: Color(0xFF26293A), width: 1.2),
     ),
     builder: (sheetContext) => StatefulBuilder(
       builder: (context, setStateModal) => Padding(
@@ -32,10 +34,10 @@ Future<void> showBackendConnectionSheet(
             final conectado =
                 !verificando && snapshot.error == null && error == null;
             final color = verificando
-                ? Colors.blueGrey
+                ? const Color(0xFF818CF8)
                 : conectado
-                ? Colors.green.shade700
-                : Colors.red.shade700;
+                ? const Color(0xFF10B981)
+                : const Color(0xFFEF4444);
 
             return Column(
               mainAxisSize: MainAxisSize.min,
@@ -43,19 +45,28 @@ Future<void> showBackendConnectionSheet(
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.cloud, color: Color(0xFF283593)),
-                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.cloud_rounded, color: Color(0xFF818CF8), size: 20),
+                    ),
+                    const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
                         'Conexión del backend',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          color: Color(0xFFF1F0FB),
+                          letterSpacing: -0.2,
                         ),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close),
+                      icon: const Icon(Icons.close, color: Color(0xFF9499B3)),
                       onPressed: () => Navigator.pop(sheetContext),
                     ),
                   ],

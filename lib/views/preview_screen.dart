@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controllers/biblioteca_controller.dart';
 import '../models/libro_local.dart';
 import '../models/libro_model.dart';
+import '../models/pagina_model.dart';
 import 'widgets/backend_connection_sheet.dart';
 
 /// Revisión del texto transcrito antes de guardarlo (local + sync si hay red).
@@ -24,6 +25,148 @@ class PreviewScreen extends StatefulWidget {
 class _PreviewScreenState extends State<PreviewScreen> {
   bool _enviando = false;
   String? _error;
+
+  Future<void> _editarTextoPagina(int index) async {
+    final pag = widget.libro.paginas[index];
+    final controller = TextEditingController(text: pag.texto);
+
+    final nuevoTexto = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF141724),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: Color(0xFF26293A)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.edit_note_rounded,
+                          color: Color(0xFF6366F1),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Editar Página ${pag.numeroPagina}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFF1F0FB),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Corrige erratas o texto mal detectado',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF9499B3),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Color(0xFF9499B3)),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 280),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0B0C12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF26293A)),
+                ),
+                child: TextField(
+                  controller: controller,
+                  maxLines: null,
+                  keyboardType: TextInputType.multiline,
+                  style: const TextStyle(
+                    color: Color(0xFFF1F0FB),
+                    fontSize: 13.5,
+                    height: 1.45,
+                    fontFamily: 'monospace',
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Escribe o edita el texto de la página...',
+                    hintStyle: TextStyle(color: Color(0xFF63677E)),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.all(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF6366F1),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(controller.text),
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Guardar cambios'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (nuevoTexto != null && nuevoTexto != pag.texto && mounted) {
+      setState(() {
+        widget.libro.paginas[index] = pag.copyWith(
+          texto: nuevoTexto,
+          conteoPalabras: PaginaModel.contarPalabras(nuevoTexto),
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Página ${pag.numeroPagina} actualizada'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   Future<void> _guardar() async {
     if (_enviando) return;
@@ -49,7 +192,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-          icon: Icon(icono, color: const Color(0xFF283593), size: 40),
+          icon: Icon(icono, color: const Color(0xFF6366F1), size: 40),
           title: Text(titulo),
           content: Text(
             '${resultado.mensaje}\n\n"${widget.libro.titulo}" con '
@@ -135,8 +278,13 @@ class _PreviewScreenState extends State<PreviewScreen> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: const BoxDecoration(
+              color: Color(0xFF141724),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFF26293A), width: 1.2),
+              ),
+            ),
             width: double.infinity,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,15 +294,16 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
+                    color: Color(0xFFF1F0FB),
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '${pags(paginas.length)} · $palabras palabras · '
                   '$caracteres caracteres',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: Color(0xFF9499B3),
                   ),
                 ),
               ],
@@ -244,7 +393,24 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   ),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => _editarTextoPagina(index),
+                            icon: const Icon(Icons.edit_note_rounded, size: 18),
+                            label: const Text('Corregir texto OCR'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF6366F1),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: SelectableText(
                         pag.texto.trim().isEmpty
                             ? '[Sin texto detectado]'
@@ -264,29 +430,33 @@ class _PreviewScreenState extends State<PreviewScreen> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton.icon(
-                        onPressed: _enviando ? null : _guardar,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF283593),
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: _enviando
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.save),
-                        label: Text(
-                          _enviando ? 'Guardando...' : 'Guardar libro',
-                        ),
-                      ),
+                width: double.infinity,
+                height: 50,
+                child: FilledButton.icon(
+                  onPressed: _enviando ? null : _guardar,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                  ),
+                  icon: _enviando
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_rounded),
+                  label: Text(
+                    _enviando ? 'Guardando...' : 'Guardar libro',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+              ),
             ),
           ),
         ],

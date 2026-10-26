@@ -37,6 +37,8 @@ class BibliotecaController extends ChangeNotifier {
   String _campoBusqueda = 'todos';
   int _pendientesCount = 0;
   bool _sincronizando = false;
+  int _syncActual = 0;
+  int _syncTotal = 0;
   bool _modoDegradado = false;
 
   // Paginación
@@ -52,6 +54,9 @@ class BibliotecaController extends ChangeNotifier {
   /// `true` si el backend no respondió.
   bool get errorEsConexion => _errorEsConexion;
 
+  /// `true` si no hay comunicación con el backend (servidor caído o inalcanzable).
+  bool get sinConexion => !_servidorAlcanzable || _errorEsConexion;
+
   String get busqueda => _busqueda;
   String get campoBusqueda => _campoBusqueda;
   bool get servidorAlcanzable => _servidorAlcanzable;
@@ -62,6 +67,8 @@ class BibliotecaController extends ChangeNotifier {
 
   int get pendientesCount => _pendientesCount;
   bool get sincronizando => _sincronizando;
+  int get syncActual => _syncActual;
+  int get syncTotal => _syncTotal;
 
   /// Hay libros locales visibles aunque el remoto falló.
   bool get modoDegradado => _modoDegradado;
@@ -74,6 +81,15 @@ class BibliotecaController extends ChangeNotifier {
   /// Estado de sync local para un id, o null si solo existe en remoto.
   EstadoSync? estadoLocalDe(String id) => _estadosLocales[id];
   String? errorSyncDe(String id) => _librosLocales[id]?.ultimoError;
+
+  /// Último error de subida registrado en la cola de pendientes (o null).
+  String? get ultimoErrorDeSync {
+    for (final l in _librosLocales.values) {
+      final e = l.ultimoError;
+      if (e != null && e.trim().isNotEmpty) return e.trim();
+    }
+    return null;
+  }
 
   bool esPendiente(String id) {
     final e = _estadosLocales[id];
@@ -263,6 +279,13 @@ class BibliotecaController extends ChangeNotifier {
 
   Future<void> refrescar() => cargar();
 
+  /// Intenta restablecer la conexión con el servidor backend y recargar datos.
+  /// Devuelve `true` si la conexión fue exitosa.
+  Future<bool> restablecerConexion() async {
+    await refrescar();
+    return _servidorAlcanzable && !_errorEsConexion;
+  }
+
   /// Se llama tras subir un libro para que la lista refleje el cambio ya mismo.
   Future<void> registrarLibroGuardado() => cargar();
 
@@ -284,10 +307,18 @@ class BibliotecaController extends ChangeNotifier {
       );
     }
     _sincronizando = true;
+    _syncActual = 0;
+    _syncTotal = _pendientesCount;
     if (!silencioso) notifyListeners();
 
     try {
-      final resultado = await _sync.sincronizarPendientes();
+      final resultado = await _sync.sincronizarPendientes(
+        onProgreso: (actual, total) {
+          _syncActual = actual;
+          _syncTotal = total;
+          if (!silencioso) notifyListeners();
+        },
+      );
       final locales = await _store.listarPendientes();
       _pendientesCount = locales.length;
       _estadosLocales
@@ -297,6 +328,11 @@ class BibliotecaController extends ChangeNotifier {
         ..clear()
         ..addEntries(locales.map((l) => MapEntry(l.id, l)));
 
+      if (resultado.sinConexion) {
+        _errorEsConexion = true;
+        _servidorAlcanzable = false;
+      }
+
       if (resultado.exitosos > 0) {
         await _recargarTrasSync();
       } else {
@@ -305,6 +341,8 @@ class BibliotecaController extends ChangeNotifier {
       return resultado;
     } finally {
       _sincronizando = false;
+      _syncActual = 0;
+      _syncTotal = 0;
       notifyListeners();
     }
   }

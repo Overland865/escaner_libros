@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/libro_model.dart';
+import 'local_user_preferences_store.dart';
 
 /// Resultado paginado de libros desde la API.
 class ResultadoLibrosPaginados {
@@ -339,16 +340,33 @@ class ApiService {
 
   /// Estado del backend y, por separado, el de Atlas.
   /// Devuelve `null` si el servidor HTTP no responde.
-  static Future<Map<String, dynamic>?> consultarSalud() async {
+  static Future<Map<String, dynamic>?> consultarSalud({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     try {
       final res = await _enviar(
         () => http.get(_uri('/api/salud'), headers: _headers()),
-        const Duration(seconds: 10),
+        timeout,
       );
       return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     } catch (_) {
       return null;
     }
+  }
+
+  /// Como [consultarSalud], pero tolera el "arranque en frío" de Render: el
+  /// plan gratuito duerme el servicio y puede tardar 30-50 s en despertar.
+  /// Si no hay red real, el fallo es inmediato y no se espera de más.
+  static Future<Map<String, dynamic>?> consultarSaludConReintento({
+    int intentos = 2,
+    Duration timeout = const Duration(seconds: 35),
+  }) async {
+    for (var i = 1; i <= intentos; i++) {
+      final salud = await consultarSalud(timeout: timeout);
+      if (salud != null) return salud;
+      if (i < intentos) await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    return null;
   }
 
   /// Verifica el backend y el endpoint protegido de libros.
@@ -474,13 +492,25 @@ class ApiService {
   }
 
   /// Detalle completo de un libro (incluye `paginas`).
+  /// Si hay conexión se consulta el backend y se actualiza la caché local.
+  /// Si no hay conexión o falla la red, se recupera de la caché local para lectura offline.
   static Future<LibroModel?> obtenerDetalleLibro(String id) async {
     try {
       final data = await _get('/api/libros/${Uri.encodeComponent(id)}');
       if (data is! Map) return null;
-      return LibroModel.fromJson(Map<String, dynamic>.from(data));
+      final libro = LibroModel.fromJson(Map<String, dynamic>.from(data));
+      unawaited(LocalUserPreferencesStore().guardarEnCache(libro));
+      return libro;
     } on ApiException catch (e) {
       if (e.esNoEncontrado) return null;
+      if (e.esErrorDeConexion) {
+        final cache = await LocalUserPreferencesStore().obtenerDeCache(id);
+        if (cache != null) return cache;
+      }
+      rethrow;
+    } catch (_) {
+      final cache = await LocalUserPreferencesStore().obtenerDeCache(id);
+      if (cache != null) return cache;
       rethrow;
     }
   }
@@ -506,7 +536,7 @@ class ApiService {
         esErrorDeConexion: true,
       );
     }
-    if (await consultarSalud() != null) return;
+    if (await consultarSaludConReintento() != null) return;
     throw ApiException(
       'No hay conexión con el backend de Render en:\n$_baseUrl\n\n'
       'Comprueba tu conexión a Internet e intenta de nuevo en unos momentos.',
