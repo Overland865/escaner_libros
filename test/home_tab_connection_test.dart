@@ -66,4 +66,29 @@ void main() {
     // Una vez restablecida, el anuncio vuelve a ocultarse
     expect(find.text('Sin conexión con el backend'), findsNothing);
   });
+
+  testWidgets(
+      'HomeTab no muestra "Ex Libris" ni cita de Borges',
+      (tester) async {
+    final fakeController = FakeBibliotecaController();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HomeTab(
+            biblioteca: fakeController,
+            onEscanear: () {},
+            onVerLibros: () {},
+          ),
+        ),
+      ),
+    );
+
+    // No debe mostrar la muestra de usuario "Ex Libris"
+    expect(find.text('Ex Libris'), findsNothing);
+    expect(find.textContaining('Lector'), findsNothing);
+
+    // No debe mostrar la cita literaria de Jorge Luis Borges
+    expect(find.textContaining('Borges'), findsNothing);
+  });
 }

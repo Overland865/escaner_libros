@@ -23,36 +23,38 @@ class BookCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
-    // Categorized gradient colors for book icons
-    final isFiction = libro.tipoLibro.toLowerCase().contains('ficci') ||
-        libro.tipoLibro.toLowerCase().contains('misterio') ||
-        libro.tipoLibro.toLowerCase().contains('terror');
-    final isFantasy = libro.tipoLibro.toLowerCase().contains('fantas') ||
-        libro.tipoLibro.toLowerCase().contains('magia');
+    // Gradientes editoriales clásicos según la temática
+    final tipo = libro.tipoLibro.toLowerCase();
+    final isHistory = tipo.contains('historia') || tipo.contains('filosof') || tipo.contains('ensayo');
+    final isFiction = tipo.contains('ficci') || tipo.contains('novela') || tipo.contains('cuento');
+    final isFantasy = tipo.contains('fantas') || tipo.contains('magia') || tipo.contains('poes');
 
-    final gradientColors = isFantasy
-        ? const [Color(0xFF8B5CF6), Color(0xFFEC4899)]
+    final gradientColors = isHistory
+        ? const [Color(0xFF6B2D2D), Color(0xFF9E4747)] // Burdeos clásico
         : isFiction
-            ? const [Color(0xFF3B82F6), Color(0xFF6366F1)]
-            : const [Color(0xFF6366F1), Color(0xFF38BDF8)];
+            ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)] // Cuero tostado
+            : isFantasy
+                ? const [Color(0xFF2D4A3E), Color(0xFF52796F)] // Verde bosque encuadernado
+                : const [Color(0xFF3E2723), Color(0xFF6D4C41)]; // Café encuadernación
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF141724),
+        color: theme.cardTheme.color,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: pendiente
-              ? Colors.amber.shade700.withValues(alpha: 0.4)
-              : const Color(0xFF26293A),
+              ? Colors.amber.shade700.withValues(alpha: 0.6)
+              : colors.outlineVariant,
           width: pendiente ? 1.4 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
             blurRadius: 10,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -82,31 +84,57 @@ class BookCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Dynamic Book Avatar with glow
+                    // Portada de libro clásica con sombra suave y lomo
                     Container(
-                      width: 48,
-                      height: 52,
+                      width: 50,
+                      height: 64,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: gradientColors,
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.black.withValues(alpha: 0.15)),
                         boxShadow: [
                           BoxShadow(
-                            color: gradientColors.first.withValues(alpha: 0.3),
+                            color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
                             blurRadius: 8,
-                            offset: const Offset(0, 3),
+                            offset: const Offset(1, 3),
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.auto_stories,
-                          color: Colors.white,
-                          size: 24,
-                        ),
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: 0,
+                            bottom: 0,
+                            left: 0,
+                            width: 5,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(8),
+                                  bottomLeft: Radius.circular(8),
+                                ),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.black.withValues(alpha: 0.4),
+                                    Colors.white.withValues(alpha: 0.15),
+                                    Colors.black.withValues(alpha: 0.2),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const Center(
+                            child: Icon(
+                              Icons.auto_stories_rounded,
+                              color: Color(0xFFFCF9F4),
+                              size: 22,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -118,10 +146,11 @@ class BookCard extends StatelessWidget {
                             libro.titulo,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
+                              fontFamily: 'Literata',
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFF1F0FB),
+                              color: colors.onSurface,
                               letterSpacing: -0.2,
                             ),
                           ),
@@ -142,6 +171,8 @@ class BookCard extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
+                                    fontFamily: 'Newsreader',
+                                    fontStyle: FontStyle.italic,
                                     fontSize: 13,
                                     color: colors.onSurfaceVariant,
                                   ),
@@ -155,8 +186,8 @@ class BookCard extends StatelessWidget {
                     if (esFavorito) ...[
                       const Icon(
                         Icons.star_rounded,
-                        color: Color(0xFFF59E0B),
-                        size: 20,
+                        color: Color(0xFFD4A373),
+                        size: 22,
                       ),
                       const SizedBox(width: 4),
                     ],
@@ -168,83 +199,100 @@ class BookCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Divider(height: 1, color: Color(0xFF222638)),
+                Divider(height: 1, color: colors.outlineVariant),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      side: const BorderSide(color: Color(0xFF2D3247)),
-                      backgroundColor: const Color(0xFF1B1E2D),
-                      label: Text(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colors.secondaryContainer.withValues(alpha: isDark ? 0.4 : 0.8),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: colors.secondary.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Text(
                         libro.tipoLibro,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11.5,
-                          color: Color(0xFFC6BFFF),
-                          fontWeight: FontWeight.w500,
+                          color: isDark ? colors.secondary : const Color(0xFF6E3616),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                     if (libro.editorial.isNotEmpty)
-                      Chip(
-                        visualDensity: VisualDensity.compact,
-                        side: const BorderSide(color: Color(0xFF2D3247)),
-                        backgroundColor: const Color(0xFF1B1E2D),
-                        label: Text(
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainer,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: colors.outlineVariant),
+                        ),
+                        child: Text(
                           libro.editorial,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11.5,
-                            color: Color(0xFFCBD5E1),
+                            color: colors.onSurfaceVariant,
                           ),
                         ),
                       ),
                     if (pendiente)
-                      Chip(
-                        visualDensity: VisualDensity.compact,
-                        side: BorderSide(
-                          color: Colors.amber.shade700.withValues(alpha: 0.6),
-                        ),
-                        avatar: Icon(
-                          Icons.cloud_upload_outlined,
-                          size: 15,
-                          color: Colors.amber.shade300,
-                        ),
-                        label: Text(
-                          'Pendiente de subir',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.amber.shade200,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade900.withValues(alpha: isDark ? 0.35 : 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.amber.shade700.withValues(alpha: 0.5),
                           ),
                         ),
-                        backgroundColor: Colors.amber.shade900.withValues(alpha: 0.35),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.cloud_upload_outlined,
+                              size: 14,
+                              color: isDark ? Colors.amber.shade300 : Colors.amber.shade900,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Pendiente',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1B1E2D),
-                        borderRadius: BorderRadius.circular(6),
+                        color: colors.surfaceContainer,
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.calendar_today_outlined,
                             size: 12,
-                            color: Color(0xFF8B8FA8),
+                            color: colors.onSurfaceVariant,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             libro.anioInicio == libro.anioFin
                                 ? '${libro.anioInicio}'
                                 : '${libro.anioInicio} - ${libro.anioFin}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFFCBD5E1),
+                              color: colors.onSurfaceVariant,
                             ),
                           ),
                         ],
@@ -254,23 +302,23 @@ class BookCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1B1E2D),
-                          borderRadius: BorderRadius.circular(6),
+                          color: colors.surfaceContainer,
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.description_outlined,
                               size: 12,
-                              color: Color(0xFF8B8FA8),
+                              color: colors.onSurfaceVariant,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               '${libro.paginas.length} págs',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11.5,
-                                color: Color(0xFF8B8FA8),
+                                color: colors.onSurfaceVariant,
                               ),
                             ),
                           ],

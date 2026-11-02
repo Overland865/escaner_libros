@@ -10,10 +10,8 @@ import '../models/pagina_model.dart';
 import '../services/ocr_service.dart';
 import 'preview_screen.dart';
 
-/// Cámara en vivo + OCR página por página.
-///
-/// Devuelve `true` al navigation si el libro quedó guardado en el dispositivo
-/// (con o sin sync al backend).
+/// Escáner Óptico de Libros en vivo + OCR página por página.
+/// Implementa el diseño Stitch "Escáner Óptico de Libros" (`f1b23f57...`).
 class ScanScreen extends StatefulWidget {
   final String idLibro;
   final String titulo;
@@ -47,7 +45,9 @@ class _ScanScreenState extends State<ScanScreen> {
   bool _procesando = false;
   bool _saliendo = false;
   bool _mostrarGuia = true;
-  String _mensaje = 'Digitalizando y transcribiendo página...';
+  bool _dobleFolio = true;
+  int _filtroActivo = 1; // 0: Color Real, 1: Pergamino Cálido, 2: B/N Texto Puro
+  String _mensaje = 'Digitalizando y transcribiendo folio...';
 
   @override
   void initState() {
@@ -89,7 +89,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  /// Transcribe una imagen y la agrega al lote de páginas.
   Future<void> _procesarImagen(
     String ruta,
     String mensajeCarga, {
@@ -124,15 +123,14 @@ class _ScanScreenState extends State<ScanScreen> {
         );
       });
 
-      // Si se cayó a ML Kit, el motivo importa: el usuario puede corregirlo.
       if (falloGemini != null) _avisarFalloGemini(falloGemini);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             texto.isEmpty
-                ? 'Página $numero sin texto legible · $motor'
-                : 'Página $numero · $palabras palabras · $motor',
+                ? 'Folio $numero sin texto legible · $motor'
+                : 'Folio $numero · $palabras palabras · $motor',
           ),
           duration: const Duration(seconds: 3),
         ),
@@ -140,7 +138,7 @@ class _ScanScreenState extends State<ScanScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al procesar la página: $e')),
+          SnackBar(content: Text('Error al procesar el folio: $e')),
         );
       }
     } finally {
@@ -156,8 +154,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  /// Muestra el motivo real por el que falló Gemini, para que el usuario
-  /// pueda corregirlo en vez de ver un "fallback" sin explicación.
   void _avisarFalloGemini(String motivo) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -201,7 +197,7 @@ class _ScanScreenState extends State<ScanScreen> {
       final XFile foto = await camara.takePicture();
       await _procesarImagen(
         foto.path,
-        'Digitalizando y transcribiendo página...',
+        'Digitalizando y transcribiendo folio...',
         eliminarImagenAlFinal: true,
       );
     } catch (e) {
@@ -213,7 +209,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  /// Permite transcribir páginas ya fotografiadas sin usar la cámara en vivo.
   Future<void> _importarDeGaleria() async {
     if (_procesando) return;
     try {
@@ -272,6 +267,37 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
+  void _mostrarInfoTranscripcion() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.auto_fix_high_rounded, color: Color(0xFF8C4E26)),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Sensor Óptico y Transcripción',
+                style: TextStyle(fontFamily: 'Literata', fontSize: 17),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Cada captura se envía de forma segura al backend para transcribirla '
+          'con Gemini AI respetando signos clásicos y párrafos. Si no hay red '
+          'disponible, se procesa localmente mediante ML Kit.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _camara?.dispose();
@@ -282,188 +308,511 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     final camara = _camara;
-    final lista = _camaraLista(camara);
+    final lista = camara != null && camara.value.isInitialized;
 
     return PopScope(
       canPop: !_procesando,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.titulo,
-            style: const TextStyle(fontSize: 17),
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: _procesando ? null : _irARevision,
-              icon: const Icon(Icons.check_circle_outline, size: 20),
-              label: const Text('Finalizar'),
-            ),
-          ],
-        ),
+        backgroundColor: const Color(0xFF1A110D),
         body: Stack(
+          fit: StackFit.expand,
           children: [
-            if (!lista) _sinCamara(camara != null),
-            if (lista) _vistaCamara(camara!),
-            if (_procesando || _saliendo) _overlay(),
+            // 1. Visor de cámara o estado alternativo sobre fondo cuero oscuro
+            if (lista)
+              _buildCameraViewport(camara)
+            else
+              _buildFallbackViewport(camara != null),
+
+            // 2. HUD Óptico de Encuadre de Pliegos (Stitch Screen 5)
+            if (_mostrarGuia)
+              _buildOpticalAlignmentHud(),
+
+            // 3. Barra Superior Flotante (Stitch Top Navigation)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _buildTopNavigation(),
+            ),
+
+            // 4. Consola Inferior de Disparo Artesanal y Filtros (Stitch Bottom Deck)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _buildBottomControlDeck(),
+            ),
+
+            // 5. Overlay de procesamiento OCR
+            if (_procesando || _saliendo) _buildProcessingOverlay(),
           ],
         ),
       ),
     );
   }
 
-  bool _camaraLista(CameraController? c) => c != null && c.value.isInitialized;
-
-  Widget _sinCamara(bool hayControlador) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.no_photography,
-              size: 54,
-              color: hayControlador ? Colors.grey : Colors.amber.shade700,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              hayControlador
-                  ? 'La cámara no está lista.'
-                  : 'No se pudo iniciar la cámara.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Habilita el permiso de cámara en los ajustes del sistema o '
-              'continúa importando páginas desde la galería.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: _importarDeGaleria,
-              icon: const Icon(Icons.photo_library_outlined),
-              label: const Text('Importar desde la galería'),
-            ),
-          ],
-        ),
+  Widget _buildCameraViewport(CameraController camara) {
+    Widget preview = FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: camara.value.previewSize?.height ?? 1080,
+        height: camara.value.previewSize?.width ?? 1920,
+        child: CameraPreview(camara),
       ),
     );
+
+    // Aplicar matiz visual según el filtro seleccionado en la barra inferior
+    if (_filtroActivo == 1) {
+      // Pergamino Cálido
+      preview = ColorFiltered(
+        colorFilter: ColorFilter.mode(
+          const Color(0xFFD4A373).withValues(alpha: 0.14),
+          BlendMode.softLight,
+        ),
+        child: preview,
+      );
+    } else if (_filtroActivo == 2) {
+      // B/N Texto Puro
+      preview = ColorFiltered(
+        colorFilter: const ColorFilter.matrix(<double>[
+          0.33, 0.59, 0.11, 0, 0,
+          0.33, 0.59, 0.11, 0, 0,
+          0.33, 0.59, 0.11, 0, 0,
+          0, 0, 0, 1, 0,
+        ]),
+        child: preview,
+      );
+    }
+
+    return preview;
   }
 
-  Widget _vistaCamara(CameraController camara) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: camara.value.previewSize?.height ?? 1080,
-            height: camara.value.previewSize?.width ?? 1920,
-            child: CameraPreview(camara),
-          ),
-        ),
-        if (_mostrarGuia) const _GuiaEncuadreLibro(),
-        Positioned(top: 16, left: 16, child: const _IndicadorTranscripcion()),
-        Positioned(
-          top: 16,
-          right: 16,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: IconButton(
-                  padding: const EdgeInsets.all(8),
-                  constraints: const BoxConstraints(),
-                  tooltip: _mostrarGuia ? 'Ocultar guía' : 'Mostrar guía',
-                  icon: Icon(
-                    _mostrarGuia ? Icons.crop_free : Icons.crop,
-                    color: _mostrarGuia ? const Color(0xFF6366F1) : Colors.white70,
-                    size: 18,
-                  ),
-                  onPressed: () => setState(() => _mostrarGuia = !_mostrarGuia),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _ContadorPaginas(cantidad: _paginas.length),
-            ],
-          ),
-        ),
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black87],
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  tooltip: 'Importar desde la galería',
-                  onPressed: _procesando ? null : _importarDeGaleria,
-                  icon: const Icon(
-                    Icons.photo_library_outlined,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                FloatingActionButton.large(
-                  onPressed: _procesando ? null : _capturar,
-                  backgroundColor: Colors.white,
-                  child: const Icon(
-                    Icons.camera_alt,
-                    color: Color(0xFF6366F1),
-                    size: 32,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Finalizar y revisar',
-                  onPressed: _procesando ? null : _irARevision,
-                  icon: const Icon(
-                    Icons.arrow_forward,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _overlay() {
+  Widget _buildFallbackViewport(bool hayControlador) {
     return Container(
-      color: const Color(0xB3000000),
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment.center,
+          radius: 0.9,
+          colors: [
+            Color(0xFF362219),
+            Color(0xFF1A110D),
+          ],
+        ),
+      ),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 36),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(color: Colors.white),
-              const SizedBox(height: 16),
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C1810),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFD4A373).withValues(alpha: 0.45),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.photo_camera_back_outlined,
+                  size: 32,
+                  color: Color(0xFFD4A373),
+                ),
+              ),
+              const SizedBox(height: 14),
               Text(
-                _saliendo ? 'Guardando en la base de datos...' : _mensaje,
+                hayControlador
+                    ? 'Calibrando lente óptica...'
+                    : 'Visor en modo de importación de pliegos',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
+                  fontFamily: 'Literata',
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFCF9F4),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Puedes importar imágenes de páginas fotografiadas desde tu galería con el botón inferior izquierdo.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Newsreader',
+                  fontStyle: FontStyle.italic,
+                  fontSize: 13,
+                  color: const Color(0xFFEDE7DF).withValues(alpha: 0.75),
+                ),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _importarDeGaleria,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFD4A373),
+                  side: const BorderSide(color: Color(0xFFD4A373)),
+                ),
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: const Text('Seleccionar pliegos de la galería'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopNavigation() {
+    return Container(
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top + 10,
+        left: 16,
+        right: 16,
+        bottom: 16,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF1A110D).withValues(alpha: 0.9),
+            const Color(0xFF1A110D).withValues(alpha: 0.45),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: Row(
+        children: [
+          // Botón circular Cerrar
+          _topCircleButton(
+            icon: Icons.close_rounded,
+            tooltip: 'Cerrar escáner',
+            onTap: _procesando ? null : () => Navigator.of(context).maybePop(),
+          ),
+          const SizedBox(width: 10),
+
+          // Cápsula central: TOMO EN CURSO + Título
+          Expanded(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C1810).withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color(0xFFD4A373).withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'TOMO EN CURSO',
+                      style: TextStyle(
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.8,
+                        color: Color(0xFFD4A373),
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      widget.titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Literata',
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFFCF9F4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          // Controles de Sensor Derecha (Guía & Info Curvatura/OCR)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _topCircleButton(
+                icon: Icons.crop_free_rounded,
+                active: _mostrarGuia,
+                tooltip: _mostrarGuia ? 'Ocultar retícula' : 'Mostrar retícula',
+                onTap: () => setState(() => _mostrarGuia = !_mostrarGuia),
+              ),
+              const SizedBox(width: 8),
+              _topCircleButton(
+                icon: Icons.auto_fix_high_rounded,
+                active: true,
+                tooltip: 'Información de corrección y OCR',
+                onTap: _mostrarInfoTranscripcion,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _topCircleButton({
+    required IconData icon,
+    required String tooltip,
+    VoidCallback? onTap,
+    bool active = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: active
+                ? const Color(0xFF8C4E26).withValues(alpha: 0.85)
+                : const Color(0xFF2C1810).withValues(alpha: 0.78),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: active
+                  ? const Color(0xFFD4A373).withValues(alpha: 0.65)
+                  : const Color(0xFFFCF9F4).withValues(alpha: 0.18),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 19,
+            color: active ? const Color(0xFFD4A373) : const Color(0xFFFCF9F4),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOpticalAlignmentHud() {
+    final numIzq = (_paginas.length * 2) + 1;
+    final numDer = numIzq + 1;
+
+    return IgnorePointer(
+      ignoring: false,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(
+            top: 68,
+            bottom: 188,
+            left: 20,
+            right: 20,
+          ),
+          child: Column(
+            children: [
+              // Píldora superior de telemetría óptica
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A110D).withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: const Color(0xFFD4A373).withValues(alpha: 0.45),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF4ADE80),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Páginas detectadas • Calibración 100%',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFFCF9F4),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Marco central con cruces de latón en las 4 esquinas y eje de lomo
+              Expanded(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _StitchReticlePainter(dobleFolio: _dobleFolio),
+                    child: Stack(
+                      children: [
+                        if (_dobleFolio) ...[
+                          // Etiqueta Folio Verso (Izquierda)
+                          Positioned(
+                            top: 12,
+                            left: 14,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'FOLIO VERSO',
+                                  style: TextStyle(
+                                    fontFamily: 'Newsreader',
+                                    fontStyle: FontStyle.italic,
+                                    fontSize: 10,
+                                    color: const Color(0xFFD4A373)
+                                        .withValues(alpha: 0.9),
+                                  ),
+                                ),
+                                Text(
+                                  'Pág. $numIzq',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFFCF9F4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Etiqueta Folio Recto (Derecha)
+                          Positioned(
+                            top: 12,
+                            right: 14,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'FOLIO RECTO',
+                                  style: TextStyle(
+                                    fontFamily: 'Newsreader',
+                                    fontStyle: FontStyle.italic,
+                                    fontSize: 10,
+                                    color: const Color(0xFFD4A373)
+                                        .withValues(alpha: 0.9),
+                                  ),
+                                ),
+                                Text(
+                                  'Pág. $numDer',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFFCF9F4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Píldora central de Eje del Lomo
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2C1810)
+                                      .withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: const Color(0xFFD4A373)
+                                        .withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'EJE DEL LOMO',
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                    color: Color(0xFFD4A373),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          Positioned(
+                            top: 12,
+                            left: 14,
+                            child: Text(
+                              'FOLIO INDIVIDUAL • PÁG. ${_paginas.length + 1}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.1,
+                                color: Color(0xFFD4A373),
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        // Indicadores inferiores de nitidez dentro del marco
+                        Positioned(
+                          bottom: 10,
+                          left: 14,
+                          child: _hudMicroBadge(
+                            Icons.straighten_rounded,
+                            'Texto nítido',
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 10,
+                          right: 14,
+                          child: _hudMicroBadge(
+                            Icons.verified_outlined,
+                            'Borde recto',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Selector segmentado: Página Simple | Doble Folio (2x)
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C1810).withValues(alpha: 0.88),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color(0xFFFCF9F4).withValues(alpha: 0.14),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _modePillButton(
+                      icon: Icons.description_outlined,
+                      label: 'Página Simple',
+                      selected: !_dobleFolio,
+                      onTap: () => setState(() => _dobleFolio = false),
+                    ),
+                    const SizedBox(width: 4),
+                    _modePillButton(
+                      icon: Icons.menu_book_rounded,
+                      label: 'Doble Folio (2x)',
+                      selected: _dobleFolio,
+                      onTap: () => setState(() => _dobleFolio = true),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -472,94 +821,65 @@ class _ScanScreenState extends State<ScanScreen> {
       ),
     );
   }
-}
 
-class _ContadorPaginas extends StatelessWidget {
-  final int cantidad;
-  const _ContadorPaginas({required this.cantidad});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _hudMicroBadge(IconData icon, String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.description, color: Colors.white, size: 18),
-          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: const Color(0xFFD4A373)),
+          const SizedBox(width: 4),
           Text(
-            '$cantidad ${cantidad == 1 ? 'página' : 'páginas'}',
+            label,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+              fontSize: 9.5,
+              color: Color(0xFFFCF9F4),
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _IndicadorTranscripcion extends StatelessWidget {
-  const _IndicadorTranscripcion();
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.primary;
+  Widget _modePillButton({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
-      onTap: () {
-        showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Row(
-              children: [
-                const Icon(Icons.cloud_upload_outlined),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Transcripción segura',
-                    style: TextStyle(fontSize: 18),
-                  ),
-                ),
-              ],
-            ),
-            content: const Text(
-              'Cada página se envía al backend para transcribirla con Gemini. '
-              'La imagen no se guarda en la biblioteca; solo se conserva el '
-              'texto resultante. Si el backend no está disponible, se usa ML Kit '
-              'localmente. Las imágenes elegidas de la galería no se modifican.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Entendido'),
-              ),
-            ],
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.6),
+          color: selected ? const Color(0xFF8C4E26) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color, width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_outlined, color: color, size: 16),
+            Icon(
+              icon,
+              size: 14,
+              color: selected
+                  ? const Color(0xFFFCF9F4)
+                  : const Color(0xFFEDE7DF).withValues(alpha: 0.7),
+            ),
             const SizedBox(width: 6),
             Text(
-              'Gemini backend',
+              label,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+                color: selected
+                    ? const Color(0xFFFCF9F4)
+                    : const Color(0xFFEDE7DF).withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -567,118 +887,531 @@ class _IndicadorTranscripcion extends StatelessWidget {
       ),
     );
   }
-}
 
-class _GuiaEncuadreLibro extends StatelessWidget {
-  const _GuiaEncuadreLibro();
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          const marginH = 28.0;
-          const marginTop = 74.0;
-          const marginBottom = 124.0;
-          final rect = Rect.fromLTWH(
-            marginH,
-            marginTop,
-            constraints.maxWidth - (marginH * 2),
-            constraints.maxHeight - marginTop - marginBottom,
-          );
-
-          return CustomPaint(
-            size: Size(constraints.maxWidth, constraints.maxHeight),
-            painter: _BookFramingPainter(rect: rect),
-            child: Stack(
+  Widget _buildBottomControlDeck() {
+    return Container(
+      padding: EdgeInsets.only(
+        top: 16,
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.of(context).padding.bottom + 18,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            const Color(0xFF1A110D),
+            const Color(0xFF1A110D).withValues(alpha: 0.94),
+            Colors.transparent,
+          ],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Hilera de filtros cromáticos de archivo
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Positioned(
-                  top: marginTop + 12,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.6),
-                          width: 1,
+                _filterChip(
+                  index: 0,
+                  label: 'Color Real',
+                  dotColor: const Color(0xFFE09F67),
+                ),
+                const SizedBox(width: 8),
+                _filterChip(
+                  index: 1,
+                  label: 'Pergamino Cálido',
+                  dotColor: const Color(0xFFF5EBD6),
+                ),
+                const SizedBox(width: 8),
+                _filterChip(
+                  index: 2,
+                  label: 'B/N Texto Puro',
+                  dotColor: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                // Acceso rápido a Galería en la barra de herramientas
+                InkWell(
+                  onTap: _procesando ? null : _importarDeGaleria,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C1810).withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFD4A373).withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.photo_library_outlined,
+                          size: 13,
+                          color: Color(0xFFD4A373),
                         ),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.center_focus_strong, color: Color(0xFF818CF8), size: 14),
-                          SizedBox(width: 6),
-                          Text(
-                            'Alinea la página aquí',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.3,
-                            ),
+                        SizedBox(width: 5),
+                        Text(
+                          'Galería',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFCF9F4),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ],
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 18),
+
+          // Consola principal de captura (3 columnas: Pila de Folios | Obturador Artesanal | Terminar)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Izquierda: Pila de Folios Escaneados con contador
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: _procesando
+                        ? null
+                        : (_paginas.isNotEmpty
+                            ? _irARevision
+                            : _importarDeGaleria),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 54,
+                          height: 62,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              // Pliegos apilados detrás
+                              Positioned(
+                                top: 4,
+                                left: 4,
+                                right: 4,
+                                bottom: 0,
+                                child: Transform.rotate(
+                                  angle: -0.1,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE8E2D7)
+                                          .withValues(alpha: 0.4),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Pliego frontal estilo pergamino
+                              Container(
+                                padding: const EdgeInsets.all(5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFCF9F4),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: const Color(0xFFD4A373),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(
+                                      height: 2,
+                                      color: const Color(0xFF8C4E26)
+                                          .withValues(alpha: 0.4),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      _paginas.isEmpty
+                                          ? 'Vacío'
+                                          : 'Fol. ${_paginas.length}',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontFamily: 'Literata',
+                                        fontSize: 8.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF2C1810),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Insignia con cantidad de páginas
+                              Positioned(
+                                top: -6,
+                                right: -6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF8C4E26),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFFCF9F4),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${_paginas.length}',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFFCF9F4),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Capturados',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFFD4A373),
+                              ),
+                            ),
+                            Text(
+                              _paginas.isEmpty ? 'Importar' : 'Revisar',
+                              style: const TextStyle(
+                                fontFamily: 'Literata',
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFCF9F4),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Centro: Botón de Obturador Artesanal (Gilded Brass & Leather Ring)
+              GestureDetector(
+                onTap: _procesando ? null : _capturar,
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFD4A373),
+                        Color(0xFF8C4E26),
+                        Color(0xFF2C1810),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A110D),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFD4A373).withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFFFCF9F4),
+                            Color(0xFFE8E2D7),
+                          ],
+                        ),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.photo_camera_rounded,
+                          size: 30,
+                          color: Color(0xFF2C1810),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Derecha: Botón Terminar / Finalizar Lote
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: _procesando ? null : _irARevision,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C1810).withValues(alpha: 0.9),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFFD4A373)
+                                  .withValues(alpha: 0.55),
+                              width: 1.4,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Color(0xFFD4A373),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Terminar',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.6,
+                            color: Color(0xFFD4A373),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterChip({
+    required int index,
+    required String label,
+    required Color dotColor,
+  }) {
+    final selected = _filtroActivo == index;
+    return GestureDetector(
+      onTap: () => setState(() => _filtroActivo = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFFD4A373).withValues(alpha: 0.22)
+              : const Color(0xFF2C1810).withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFFD4A373)
+                : const Color(0xFFFCF9F4).withValues(alpha: 0.14),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected
+                    ? const Color(0xFFD4A373)
+                    : const Color(0xFFEDE7DF).withValues(alpha: 0.75),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProcessingOverlay() {
+    return Container(
+      color: const Color(0xCC1A110D),
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C1810),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFFD4A373).withValues(alpha: 0.5),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFFD4A373)),
+              const SizedBox(height: 16),
+              Text(
+                _saliendo ? 'Preparando mesa de revisión OCR...' : _mensaje,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Literata',
+                  color: Color(0xFFFCF9F4),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class _BookFramingPainter extends CustomPainter {
-  final Rect rect;
-  _BookFramingPainter({required this.rect});
+class _StitchReticlePainter extends CustomPainter {
+  final bool dobleFolio;
+
+  _StitchReticlePainter({required this.dobleFolio});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bgPaint = Paint()..color = Colors.black.withValues(alpha: 0.3);
-    final bgPath = Path()
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    final framePath = Path()
-      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)));
-    final cutPath = Path.combine(PathOperation.difference, bgPath, framePath);
-    canvas.drawPath(cutPath, bgPaint);
+    final rect = Offset.zero & size;
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(14));
 
+    // Borde sutil exterior
     final borderPaint = Paint()
-      ..color = const Color(0xFF6366F1).withValues(alpha: 0.35)
+      ..color = const Color(0xFFD4A373).withValues(alpha: 0.42)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), borderPaint);
+      ..strokeWidth = 1.4;
+    canvas.drawRRect(rrect, borderPaint);
 
+    // Cruces de latón en las 4 esquinas
     final cornerPaint = Paint()
-      ..color = const Color(0xFF818CF8)
+      ..color = const Color(0xFFD4A373)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
+      ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round;
 
-    const cornerLen = 26.0;
+    const len = 24.0;
     // Top-Left
-    canvas.drawLine(Offset(rect.left, rect.top + cornerLen), Offset(rect.left, rect.top), cornerPaint);
-    canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left + cornerLen, rect.top), cornerPaint);
-
+    canvas.drawLine(
+      Offset(rect.left, rect.top + len),
+      Offset(rect.left, rect.top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(rect.left, rect.top),
+      Offset(rect.left + len, rect.top),
+      cornerPaint,
+    );
     // Top-Right
-    canvas.drawLine(Offset(rect.right - cornerLen, rect.top), Offset(rect.right, rect.top), cornerPaint);
-    canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right, rect.top + cornerLen), cornerPaint);
-
+    canvas.drawLine(
+      Offset(rect.right - len, rect.top),
+      Offset(rect.right, rect.top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(rect.right, rect.top),
+      Offset(rect.right, rect.top + len),
+      cornerPaint,
+    );
     // Bottom-Left
-    canvas.drawLine(Offset(rect.left, rect.bottom - cornerLen), Offset(rect.left, rect.bottom), cornerPaint);
-    canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left + cornerLen, rect.bottom), cornerPaint);
-
+    canvas.drawLine(
+      Offset(rect.left, rect.bottom - len),
+      Offset(rect.left, rect.bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(rect.left, rect.bottom),
+      Offset(rect.left + len, rect.bottom),
+      cornerPaint,
+    );
     // Bottom-Right
-    canvas.drawLine(Offset(rect.right - cornerLen, rect.bottom), Offset(rect.right, rect.bottom), cornerPaint);
-    canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right, rect.bottom - cornerLen), cornerPaint);
+    canvas.drawLine(
+      Offset(rect.right - len, rect.bottom),
+      Offset(rect.right, rect.bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(rect.right, rect.bottom),
+      Offset(rect.right, rect.bottom - len),
+      cornerPaint,
+    );
+
+    // Eje central de pliego (si Doble Folio está activo)
+    if (dobleFolio) {
+      final centerX = size.width / 2;
+      final dashPaint = Paint()
+        ..color = const Color(0xFFD4A373).withValues(alpha: 0.55)
+        ..strokeWidth = 1.2;
+
+      double y = 32;
+      while (y < size.height - 20) {
+        canvas.drawLine(
+          Offset(centerX, y),
+          Offset(centerX, y + 6),
+          dashPaint,
+        );
+        y += 12;
+      }
+    }
+
+    // Línea horizontal de barrido óptico
+    final scanY = size.height * 0.52;
+    final scanPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          Colors.transparent,
+          const Color(0xFFD4A373).withValues(alpha: 0.65),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromLTWH(0, scanY, size.width, 2))
+      ..strokeWidth = 1.5;
+    canvas.drawLine(
+      Offset(12, scanY),
+      Offset(size.width - 12, scanY),
+      scanPaint,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _BookFramingPainter oldDelegate) => oldDelegate.rect != rect;
+  bool shouldRepaint(covariant _StitchReticlePainter oldDelegate) =>
+      oldDelegate.dobleFolio != dobleFolio;
 }

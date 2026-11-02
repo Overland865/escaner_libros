@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/local_user_preferences_store.dart';
 import 'reading_mode_screen.dart';
 
+/// Detalle del Tomo — Implementa el diseño Stitch "Detalle del Libro" (`300670b5...`).
 class BookDetailScreen extends StatefulWidget {
   final String idLibro;
   final String titulo;
@@ -92,8 +93,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Eliminar documento'),
         content: Text(
-          '¿Seguro que quieres eliminar "${libro.titulo}"? Esta acción no se '
-          'puede deshacer.',
+          '¿Seguro que quieres eliminar "${libro.titulo}"? Esta acción no se puede deshacer.',
         ),
         actions: [
           TextButton(
@@ -101,7 +101,10 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar'),
           ),
@@ -114,9 +117,10 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
     try {
       await ApiService.eliminarLibro(libro.id);
       if (!mounted) return;
-      Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Documento eliminado')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Documento eliminado correctamente.')),
+      );
+      Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -141,16 +145,34 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(widget.titulo, style: const TextStyle(fontSize: 18)),
+        centerTitle: true,
+        title: Text(
+          'Detalle del Tomo',
+          style: TextStyle(
+            fontFamily: 'Literata',
+            fontStyle: FontStyle.italic,
+            fontSize: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
         actions: [
           IconButton(
             icon: Icon(
-              _esFavorito ? Icons.star_rounded : Icons.star_border_rounded,
-              color: _esFavorito ? const Color(0xFFF59E0B) : const Color(0xFF9499B3),
+              _esFavorito
+                  ? Icons.bookmark_rounded
+                  : Icons.bookmark_border_rounded,
+              color: _esFavorito
+                  ? theme.colorScheme.secondary
+                  : theme.colorScheme.onSurfaceVariant,
             ),
-            tooltip: _esFavorito ? 'Quitar de favoritos' : 'Marcar como favorito',
+            tooltip: _esFavorito
+                ? 'Quitar de favoritos'
+                : 'Marcar como favorito',
             onPressed: () async {
               final messenger = ScaffoldMessenger.of(context);
               final nuevoFav = await _prefs.alternarFavorito(widget.idLibro);
@@ -159,7 +181,9 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
               messenger.showSnackBar(
                 SnackBar(
                   content: Text(
-                    nuevoFav ? 'Libro agregado a favoritos ⭐' : 'Libro eliminado de favoritos',
+                    nuevoFav
+                        ? 'Tomo guardado en tus destacados ⭐'
+                        : 'Tomo quitado de destacados',
                   ),
                   duration: const Duration(seconds: 2),
                   behavior: SnackBarBehavior.floating,
@@ -176,7 +200,11 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
         ],
       ),
       body: _cargando
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                color: theme.colorScheme.secondary,
+              ),
+            )
           : _error != null
           ? Center(
               child: Padding(
@@ -184,10 +212,10 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.error_outline,
                       size: 48,
-                      color: Colors.red,
+                      color: theme.colorScheme.error,
                     ),
                     const SizedBox(height: 12),
                     Text(_error!, textAlign: TextAlign.center),
@@ -205,346 +233,523 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   }
 
   Widget _construirDetalle() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final libro = _libro!;
     final paginas = libro.paginas;
+    final totalPalabras = paginas.fold<int>(0, (s, p) => s + p.conteoPalabras);
+    final porcentaje = (_progreso != null && _progreso!.totalPaginas > 0)
+        ? _progreso!.porcentajeEntero
+        : 0;
+    final paginaActual = (_progreso != null && _progreso!.ultimaPagina > 0)
+        ? _progreso!.ultimaPagina + 1
+        : 1;
+    final lecturaCompletada = _progreso != null && _progreso!.completado;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
+    final tipo = libro.tipoLibro.toLowerCase();
+    final gradientColors = tipo.contains('historia')
+        ? const [Color(0xFF5A2525), Color(0xFF7E3838)]
+        : tipo.contains('ficci') || tipo.contains('novela')
+        ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)]
+        : tipo.contains('pdf')
+        ? const [Color(0xFF1B3B4B), Color(0xFF2C5E78)]
+        : const [Color(0xFF2C1810), Color(0xFF4A2A1E)];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+        // Banner de estado local / offline
         if (widget.libroLocal != null) ...[
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1912),
-              borderRadius: BorderRadius.circular(14),
+              color: isDark ? const Color(0xFF261D15) : const Color(0xFFFFF9F2),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: Colors.amber.shade700.withValues(alpha: 0.5),
-                width: 1.1,
+                width: 1.2,
               ),
             ),
-            child: Column(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.cloud_off_rounded, color: Colors.amber.shade300, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
+                Icon(
+                  Icons.cloud_upload_outlined,
+                  color: isDark ? Colors.amber.shade300 : Colors.amber.shade900,
+                  size: 22,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
                         'Guardado en este dispositivo; aún no está en el servidor.',
                         style: TextStyle(
-                          color: Colors.amber.shade200,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? Colors.amber.shade200
+                              : Colors.amber.shade900,
+                          fontSize: 13.5,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                if (_errorSync != null) ...[
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    'Error de subida: $_errorSync',
-                    style: const TextStyle(color: Color(0xFFC7BBA8), fontSize: 12),
+                      const SizedBox(height: 4),
+                      Text(
+                        _errorSync != null ? 'Error de subida: $_errorSync' : 'Los cambios se subirán automáticamente en cuanto se restablezca la conexión.',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
         ],
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF141724),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFF26293A), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(20),
+
+        // 1. Hero Cover Section Centrada con Lomo de Nervios y Listón (Stitch detalle.html)
+        Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      libro.titulo,
-                      style: const TextStyle(
-                        fontSize: 20,
+              SizedBox(
+                width: 148,
+                height: 214,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Listón Ex Libris sobresaliendo arriba
+                    Positioned(
+                      top: -8,
+                      right: 22,
+                      child: Container(
+                        width: 18,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.secondary,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(2),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Portada encuadernada en cuero con nervios en el lomo
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: gradientColors,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(4),
+                          bottomLeft: Radius.circular(4),
+                          topRight: Radius.circular(10),
+                          bottomRight: Radius.circular(10),
+                        ),
+                        border: Border.all(
+                          color: const Color(0xFFD4A373).withValues(alpha: 0.4),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: isDark ? 0.5 : 0.25,
+                            ),
+                            blurRadius: 20,
+                            offset: const Offset(6, 10),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          // Lomo izquierdo con nervios dorados (Raised Cord Hubs)
+                          Container(
+                            width: 16,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.28),
+                              border: Border(
+                                right: BorderSide(
+                                  color: Colors.black.withValues(alpha: 0.35),
+                                ),
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: List.generate(
+                                4,
+                                (_) => Container(
+                                  height: 2,
+                                  color: const Color(0xFFD4A373)
+                                      .withValues(alpha: 0.45),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Cubierta grabada en pan de oro
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: const Color(0xFFD4A373)
+                                        .withValues(alpha: 0.35),
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Icon(
+                                      Icons.auto_stories_rounded,
+                                      size: 20,
+                                      color: Color(0xFFD4A373),
+                                    ),
+                                    Text(
+                                      libro.titulo,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 4,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontFamily: 'Literata',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFFFCF9F4),
+                                        height: 1.2,
+                                      ),
+                                    ),
+                                    Column(
+                                      children: [
+                                        Container(
+                                          width: 28,
+                                          height: 1,
+                                          color: const Color(0xFFD4A373)
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        const Text(
+                                          'COLECCIÓN CLÁSICA',
+                                          style: TextStyle(
+                                            fontSize: 6.5,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 1.2,
+                                            color: Color(0xFFD4A373),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Píldora "Edición Digitalizada • Escaneado en HD"
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.verified_rounded,
+                      size: 14,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'EDICIÓN DIGITALIZADA • ESCANEADO EN HD',
+                      style: TextStyle(
+                        fontSize: 9.5,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFFF1F0FB),
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.person_rounded, size: 18, color: Color(0xFF818CF8)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      libro.autor.isNotEmpty
-                          ? 'Autor: ${libro.autor}'
-                          : 'Autor no especificado',
-                      style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
-                    ),
-                  ),
-                ],
-              ),
-              if (libro.editorial.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.business_rounded, size: 18, color: Color(0xFF38BDF8)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Editorial: ${libro.editorial}',
-                        style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
+                        letterSpacing: 1.1,
+                        color: theme.colorScheme.secondary,
                       ),
                     ),
                   ],
                 ),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFFA855F7)),
-                  const SizedBox(width: 8),
-                  Text(
-                    libro.anioInicio == libro.anioFin
-                        ? 'Año de publicación: ${libro.anioInicio}'
-                        : 'Periodo: ${libro.anioInicio} - ${libro.anioFin}',
-                    style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
-                  ),
-                ],
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.category_rounded, size: 18, color: Color(0xFF34D399)),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Tipo: ${libro.tipoLibro}',
-                    style: const TextStyle(color: Color(0xFFD4D8EE), fontSize: 13.5),
-                  ),
-                ],
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Divider(color: Color(0xFF26293A), height: 1),
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _metricItem(
-                      'Páginas',
-                      '${paginas.length}',
-                      Icons.auto_stories_rounded,
-                      const Color(0xFF818CF8),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _metricItem(
-                      'Año',
-                      '${libro.anioInicio}',
-                      Icons.event_rounded,
-                      const Color(0xFF38BDF8),
-                    ),
-                  ),
-                ],
-              ),
-              if (_progreso != null && _progreso!.totalPaginas > 0) ...[
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Divider(color: Color(0xFF26293A), height: 1),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Progreso de lectura',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFC6BFFF),
-                          ),
-                        ),
-                        Text(
-                          'Página ${_progreso!.ultimaPagina + 1} de ${_progreso!.totalPaginas} (${_progreso!.porcentajeEntero}%)',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF9499B3),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: _progreso!.porcentaje,
-                        minHeight: 6,
-                        backgroundColor: const Color(0xFF222638),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
+
+        // 2. Información Bibliográfica Centrada
+        Text(
+          libro.titulo,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Literata',
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurface,
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          libro.autor.isNotEmpty ? libro.autor : 'Autor no especificado',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Newsreader',
+            fontStyle: FontStyle.italic,
+            fontSize: 16.5,
+            color: theme.colorScheme.secondary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            if (libro.editorial.isNotEmpty) libro.editorial,
+            'Año ${libro.anioInicio}',
+            if (libro.tipoLibro.isNotEmpty) libro.tipoLibro,
+          ].join(' • '),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 18),
+
+        // 3. Bento Grid de 2 Columnas + Gilded Book Edge Tracker (Stitch)
         Row(
           children: [
-            const Expanded(
-              child: Text(
-                'Páginas Digitalizadas',
-                style: TextStyle(
-                  fontSize: 18,
+            Expanded(
+              child: _bentoStatCard(
+                theme,
+                icon: Icons.document_scanner_outlined,
+                label: 'DIGITALIZADO',
+                value: '${paginas.length} págs.',
+                sub: '$totalPalabras palabras',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _bentoStatCard(
+                theme,
+                icon: Icons.auto_stories_outlined,
+                label: 'PROGRESO',
+                value: '$porcentaje%',
+                sub: lecturaCompletada ? 'Completado' : 'Pág. $paginaActual',
+                highlight: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // Barra dorada de progreso de cantos de libro
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Progreso en el tomo actual',
+                    style: TextStyle(
+                      fontFamily: 'Newsreader',
+                      fontStyle: FontStyle.italic,
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    'Página $paginaActual de ${paginas.isEmpty ? 1 : paginas.length}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: (_progreso != null && _progreso!.totalPaginas > 0)
+                      ? _progreso!.porcentaje
+                      : 0.04,
+                  minHeight: 6,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    theme.colorScheme.secondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // 4. Botón Primario: Continuar Lectura / Comenzar Lectura
+        if (paginas.isNotEmpty) ...[
+          SizedBox(
+            height: 50,
+            child: FilledButton.icon(
+              onPressed: () => _abrirModoLectura(
+                libro,
+                desde: (_progreso != null &&
+                        !lecturaCompletada &&
+                        _progreso!.ultimaPagina > 0)
+                    ? _progreso!.ultimaPagina
+                    : 0,
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: const Icon(Icons.menu_book_rounded, size: 20),
+              label: Text(
+                lecturaCompletada
+                    ? 'VOLVER A LEER DESDE EL INICIO'
+                    : (_progreso != null && _progreso!.ultimaPagina > 0)
+                        ? 'CONTINUAR LECTURA (PÁG. $paginaActual)'
+                        : 'ABRIR EN MODO LECTURA',
+                style: const TextStyle(
+                  fontFamily: 'Literata',
+                  fontSize: 13.5,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFF1F0FB),
-                  letterSpacing: -0.2,
+                  letterSpacing: 0.6,
                 ),
               ),
             ),
-            if (paginas.isNotEmpty)
-              Container(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.35),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: FilledButton.icon(
-                  onPressed: () => _abrirModoLectura(
-                    libro,
-                    desde: (_progreso != null && _progreso!.ultimaPagina > 0)
-                        ? _progreso!.ultimaPagina
-                        : 0,
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  ),
-                  icon: Icon(
-                    (_progreso != null && _progreso!.ultimaPagina > 0)
-                        ? Icons.play_arrow_rounded
-                        : Icons.chrome_reader_mode_outlined,
-                    size: 18,
-                  ),
-                  label: Text(
-                    (_progreso != null && _progreso!.ultimaPagina > 0)
-                        ? 'Continuar (Pág. ${_progreso!.ultimaPagina + 1})'
-                        : 'Modo lectura',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // 5. Sección de Páginas Digitalizadas
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Páginas Digitalizadas',
+              style: TextStyle(
+                fontFamily: 'Literata',
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
               ),
+            ),
+            Text(
+              '${paginas.length} páginas',
+              style: TextStyle(
+                fontFamily: 'Newsreader',
+                fontStyle: FontStyle.italic,
+                fontSize: 13,
+                color: theme.colorScheme.secondary,
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         if (paginas.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
                 'No hay páginas registradas para este documento.',
-                style: TextStyle(color: Color(0xFF8B8FA8)),
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
               ),
             ),
           )
         else
           ...paginas.map(
             (pag) => Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              color: const Color(0xFF141724),
+              margin: const EdgeInsets.only(bottom: 10),
+              color: theme.cardTheme.color,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: const BorderSide(color: Color(0xFF26293A)),
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: theme.colorScheme.outlineVariant),
               ),
               child: ExpansionTile(
                 leading: Container(
-                  width: 36,
-                  height: 36,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                    color: theme.colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: theme.colorScheme.secondary.withValues(alpha: 0.4),
                     ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6366F1).withValues(alpha: 0.3),
-                        blurRadius: 6,
-                      ),
-                    ],
                   ),
                   alignment: Alignment.center,
                   child: Text(
                     '${pag.numeroPagina}',
-                    style: const TextStyle(
+                    style: TextStyle(
+                      fontFamily: 'Literata',
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      fontSize: 13,
+                      color: theme.colorScheme.secondary,
+                      fontSize: 12.5,
                     ),
                   ),
                 ),
                 title: Text(
                   'Página ${pag.numeroPagina}',
-                  style: const TextStyle(
+                  style: TextStyle(
+                    fontFamily: 'Literata',
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFF1F0FB),
+                    fontSize: 14,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 subtitle: Text(
                   '${pag.conteoPalabras} palabras transcritas',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF8B8FA8)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 children: [
                   Container(
                     margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D0E15),
+                      color: theme.scaffoldBackgroundColor,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF222536)),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
                     ),
                     child: SelectableText(
                       pag.texto.trim().isEmpty
                           ? '[Sin texto transcrito]'
                           : pag.texto,
-                      style: const TextStyle(
-                        fontFamily: 'serif',
-                        fontSize: 13.5,
+                      style: TextStyle(
+                        fontFamily: 'Newsreader',
+                        fontSize: 14,
                         height: 1.55,
-                        color: Color(0xFFE2E0EE),
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -557,10 +762,17 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                           libro,
                           desde: paginas.indexOf(pag),
                         ),
-                        icon: const Icon(Icons.fullscreen_rounded, size: 18, color: Color(0xFF818CF8)),
-                        label: const Text(
-                          'Leer desde aquí',
-                          style: TextStyle(color: Color(0xFF818CF8), fontWeight: FontWeight.bold),
+                        icon: Icon(
+                          Icons.auto_stories_rounded,
+                          size: 17,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Leer desde esta página',
+                          style: TextStyle(
+                            color: theme.colorScheme.secondary,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -569,39 +781,60 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
               ),
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _metricItem(String label, String value, IconData icon, Color color) {
+  Widget _bentoStatCard(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required String value,
+    required String sub,
+    bool highlight = false,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1B1E30),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2A2F4A)),
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: highlight
+              ? theme.colorScheme.secondary.withValues(alpha: 0.45)
+              : theme.colorScheme.outlineVariant,
+        ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Color(0xFFF1F0FB),
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF8B8FA8)),
-                ),
-              ],
+          Icon(icon, size: 18, color: theme.colorScheme.secondary),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 8.5,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'Literata',
+              fontSize: 13.5,
+              fontWeight: FontWeight.bold,
+              color: highlight
+                  ? theme.colorScheme.secondary
+                  : theme.colorScheme.onSurface,
+            ),
+          ),
+          Text(
+            sub,
+            style: TextStyle(
+              fontSize: 9.5,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],

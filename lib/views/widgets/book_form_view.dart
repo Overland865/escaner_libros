@@ -17,7 +17,8 @@ class DatosLibroForm {
   });
 }
 
-/// Formulario reutilizable embebido en la pestaña "Escanear".
+/// Formulario reutilizable de catalogación bibliográfica antes de abrir la cámara.
+/// Diseñado con estética Stitch "Ex Libris" (pergamino, lomo de cuero y tipografía clásica).
 class BookFormView extends StatefulWidget {
   final ValueChanged<DatosLibroForm> onEnviar;
 
@@ -155,204 +156,327 @@ class _BookFormViewState extends State<BookFormView> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Stack(
         children: [
-          TextFormField(
-            controller: _tituloController,
-            textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Título',
-              hintText: 'Título del libro',
-              prefixIcon: Icon(Icons.menu_book),
-              border: OutlineInputBorder(),
-            ),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: _autorController,
-            textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Autor',
-              hintText: 'Nombre del autor',
-              prefixIcon: Icon(Icons.person_outline),
-              border: OutlineInputBorder(),
-            ),
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: _editorialController,
-            textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Editorial (opcional)',
-              hintText: 'Nombre de la editorial',
-              prefixIcon: Icon(Icons.business_outlined),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            initialValue: _tipoLibro,
-            dropdownColor: const Color(0xFF22232E),
-            borderRadius: BorderRadius.circular(16),
-            menuMaxHeight: 380,
-            elevation: 12,
-            isExpanded: true,
-            icon: const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              color: Color(0xFFC6BFFF),
-            ),
-            decoration: const InputDecoration(
-              labelText: 'Género / tipo de libro',
-              hintText: 'Selecciona una categoría',
-              prefixIcon: Icon(Icons.category_outlined),
-              border: OutlineInputBorder(),
-            ),
-            selectedItemBuilder: (context) {
-              return BookFormView.tiposDisponibles.map((t) {
-                final icono = BookFormView.iconoDe(t);
-                return Row(
-                  children: [
-                    Icon(icono, size: 20, color: const Color(0xFFC6BFFF)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        t,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFFE6E1F5),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
+          // Franja vertical de lomo de cuero a la izquierda
+          Positioned(
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: 5,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    theme.colorScheme.secondary,
+                    theme.colorScheme.primary,
+                    theme.colorScheme.secondary,
                   ],
-                );
-              }).toList();
-            },
-            items: BookFormView.tiposDisponibles.map((t) {
-              final esSeleccionado = t == _tipoLibro;
-              final icono = BookFormView.iconoDe(t);
-              return DropdownMenuItem<String>(
-                value: t,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
+                ),
+              ),
+            ),
+          ),
+          // Listón colgante superior derecho
+          Positioned(
+            top: 0,
+            right: 20,
+            child: Container(
+              width: 22,
+              height: 32,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondary,
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(4),
+                ),
+              ),
+              alignment: Alignment.bottomCenter,
+              padding: const EdgeInsets.only(bottom: 4),
+              child: const Icon(
+                Icons.bookmark_rounded,
+                size: 13,
+                color: Color(0xFFFCF9F4),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 20, 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
                       Container(
-                        width: 32,
-                        height: 32,
+                        width: 36,
+                        height: 36,
                         decoration: BoxDecoration(
-                          color: esSeleccionado
-                              ? const Color(0xFF39345C)
-                              : const Color(0xFF2C2D3A),
+                          color: theme.colorScheme.surfaceContainer,
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: theme.colorScheme.secondary.withValues(
+                              alpha: 0.35,
+                            ),
+                          ),
                         ),
                         child: Icon(
-                          icono,
-                          size: 18,
-                          color: esSeleccionado
-                              ? const Color(0xFFC6BFFF)
-                              : const Color(0xFFB9B4C7),
+                          Icons.history_edu_rounded,
+                          size: 20,
+                          color: theme.colorScheme.secondary,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          t,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: esSeleccionado
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            color: esSeleccionado
-                                ? const Color(0xFFE6E1F5)
-                                : const Color(0xFFD0CBE0),
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'REGISTRO CATALOGÁFICO',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.4,
+                                color: theme.colorScheme.secondary,
+                              ),
+                            ),
+                            Text(
+                              'Metadatos del Ejemplar',
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (esSeleccionado)
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          size: 18,
-                          color: Color(0xFFC6BFFF),
-                        ),
                     ],
                   ),
-                ),
-              );
-            }).toList(),
-            onChanged: (val) {
-              setState(() => _tipoLibro = val);
-            },
-            validator: (value) => value == null ? 'Selecciona un tipo' : null,
-          ),
-          if (_tipoLibro == 'Otro') ...[
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _otroTipoController,
-              textInputAction: TextInputAction.next,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                labelText: 'Escribe el género o tipo',
-                hintText: 'Ej. Grimorio, Crónica medieval, Tratado...',
-                prefixIcon: const Icon(Icons.edit_note),
-                border: const OutlineInputBorder(),
-                helperText: 'Género libre para este libro',
-                helperStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 11,
-                ),
+                  const SizedBox(height: 18),
+                  TextFormField(
+                    controller: _tituloController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Título',
+                      hintText: 'Título del libro',
+                      prefixIcon: Icon(Icons.menu_book),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _autorController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Autor',
+                      hintText: 'Nombre del autor',
+                      prefixIcon: Icon(Icons.person_outline),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _editorialController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Editorial (opcional)',
+                      hintText: 'Nombre de la editorial',
+                      prefixIcon: Icon(Icons.business_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: _tipoLibro,
+                    dropdownColor: theme.cardTheme.color,
+                    borderRadius: BorderRadius.circular(14),
+                    menuMaxHeight: 380,
+                    elevation: 12,
+                    isExpanded: true,
+                    icon: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Género / tipo de libro',
+                      hintText: 'Selecciona una categoría',
+                      prefixIcon: Icon(Icons.category_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    selectedItemBuilder: (context) {
+                      return BookFormView.tiposDisponibles.map((t) {
+                        final icono = BookFormView.iconoDe(t);
+                        return Row(
+                          children: [
+                            Icon(
+                              icono,
+                              size: 20,
+                              color: theme.colorScheme.secondary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                t,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }).toList();
+                    },
+                    items: BookFormView.tiposDisponibles.map((t) {
+                      final esSeleccionado = t == _tipoLibro;
+                      final icono = BookFormView.iconoDe(t);
+                      return DropdownMenuItem<String>(
+                        value: t,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: esSeleccionado
+                                      ? theme.colorScheme.secondaryContainer
+                                      : theme.colorScheme.surfaceContainer,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  icono,
+                                  size: 18,
+                                  color: esSeleccionado
+                                      ? theme.colorScheme.secondary
+                                      : theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  t,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: esSeleccionado
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                              if (esSeleccionado)
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: theme.colorScheme.secondary,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setState(() => _tipoLibro = val);
+                    },
+                    validator: (value) =>
+                        value == null ? 'Selecciona un tipo' : null,
+                  ),
+                  if (_tipoLibro == 'Otro') ...[
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: _otroTipoController,
+                      textInputAction: TextInputAction.next,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        labelText: 'Escribe el género o tipo',
+                        hintText: 'Ej. Grimorio, Crónica medieval, Tratado...',
+                        prefixIcon: const Icon(Icons.edit_note),
+                        border: const OutlineInputBorder(),
+                        helperText: 'Género libre para este libro',
+                        helperStyle: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
+                      validator: (value) {
+                        if (_tipoLibro == 'Otro' &&
+                            (value == null || value.trim().isEmpty)) {
+                          return 'Por favor escribe el género del libro';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _anioPublicacionController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Año de publicación',
+                      hintText: 'Ej. 1850',
+                      prefixIcon: Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      final year = int.tryParse(value?.trim() ?? '');
+                      if (year == null || year < 1 || year > 9999) {
+                        return 'Ingresa un año válido';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _enviar,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      elevation: 3,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: const Text(
+                      'Comenzar Digitalización con Cámara',
+                      style: TextStyle(
+                        fontFamily: 'Literata',
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              validator: (value) {
-                if (_tipoLibro == 'Otro' &&
-                    (value == null || value.trim().isEmpty)) {
-                  return 'Por favor escribe el género del libro';
-                }
-                return null;
-              },
-            ),
-          ],
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: _anioPublicacionController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Año de publicación',
-              hintText: 'Ej. 1850',
-              prefixIcon: Icon(Icons.calendar_today),
-              border: OutlineInputBorder(),
-            ),
-            validator: (value) {
-              final year = int.tryParse(value?.trim() ?? '');
-              if (year == null || year < 1 || year > 9999) {
-                return 'Ingresa un año válido';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 28),
-          ElevatedButton.icon(
-            onPressed: _enviar,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              foregroundColor: Colors.white,
-              elevation: 2,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.camera_alt),
-            label: const Text(
-              'Comenzar Digitalización con Cámara',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ],

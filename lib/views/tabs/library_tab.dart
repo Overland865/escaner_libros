@@ -37,9 +37,10 @@ class _LibraryTabState extends State<LibraryTab> {
   String _filtroRapido = 'todos'; // 'todos', 'favoritos', 'en_lectura'
   String _categoriaSeleccionada = 'Todas';
   CriterioOrden _criterioOrden = CriterioOrden.tituloAZ;
-  bool _vistaCuadricula = false;
+  bool _vistaCuadricula = true; // Vista cuadrícula por defecto modelada en Stitch
   Set<String> _favoritos = <String>{};
   Set<String> _librosConMarcadores = <String>{};
+  Map<String, ProgresoLectura> _progresos = {};
 
   @override
   void initState() {
@@ -53,11 +54,26 @@ class _LibraryTabState extends State<LibraryTab> {
   Future<void> _cargarDatosLocales() async {
     try {
       final favs = await _prefs.obtenerFavoritos();
-      final conMarcadores = await _prefs.obtenerLibrosConMarcadores();
+      final progs = <String, ProgresoLectura>{};
+      final enLectura = <String>{};
+      for (final l in widget.biblioteca.libros) {
+        try {
+          final p = await _prefs.obtenerProgreso(l.id);
+          if (p != null) {
+            progs[l.id] = p;
+            final totalReal =
+                l.paginas.isNotEmpty ? l.paginas.length : p.totalPaginas;
+            if (totalReal > 0 && p.ultimaPagina >= 0 && p.ultimaPagina < totalReal - 1) {
+              enLectura.add(l.id);
+            }
+          }
+        } catch (_) {}
+      }
       if (mounted) {
         setState(() {
           _favoritos = favs;
-          _librosConMarcadores = conMarcadores;
+          _librosConMarcadores = enLectura;
+          _progresos = progs;
         });
       }
     } catch (_) {}
@@ -145,7 +161,7 @@ class _LibraryTabState extends State<LibraryTab> {
                 controller: _searchController,
                 keyboardType: TextInputType.text,
                 textInputAction: TextInputAction.search,
-                style: const TextStyle(color: Color(0xFFF1F0FB), fontSize: 14.5),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 14.5),
                 onChanged: _programarBusqueda,
                 onSubmitted: (q) {
                   _debounce?.cancel();
@@ -156,14 +172,14 @@ class _LibraryTabState extends State<LibraryTab> {
                 },
                 decoration: InputDecoration(
                   hintText: 'Buscar por título, autor, editorial, año...',
-                  hintStyle: const TextStyle(color: Color(0xFF646B87), fontSize: 14),
+                  hintStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
                   filled: true,
-                  fillColor: const Color(0xFF141724),
-                  prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF818CF8)),
+                  fillColor: Theme.of(context).colorScheme.surfaceContainer,
+                  prefixIcon: Icon(Icons.search_rounded, color: Theme.of(context).colorScheme.secondary),
                   suffixIcon: b.busqueda.isEmpty
                       ? null
                       : IconButton(
-                          icon: const Icon(Icons.clear, color: Color(0xFF9499B3)),
+                          icon: Icon(Icons.clear, color: Theme.of(context).colorScheme.onSurfaceVariant),
                           onPressed: () {
                             _debounce?.cancel();
                             _searchController.clear();
@@ -176,11 +192,11 @@ class _LibraryTabState extends State<LibraryTab> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF25293C), width: 1.2),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.outlineVariant, width: 1.2),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+                    borderSide: BorderSide(color: Theme.of(context).colorScheme.secondary, width: 1.5),
                   ),
                 ),
               ),
@@ -201,10 +217,10 @@ class _LibraryTabState extends State<LibraryTab> {
                       hayFiltroActivo
                           ? 'Filtro aplicado'
                           : '${b.libros.length} libros en catálogo',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFFC7CBD9),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                         letterSpacing: -0.1,
                       ),
                     ),
@@ -214,7 +230,7 @@ class _LibraryTabState extends State<LibraryTab> {
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         visualDensity: VisualDensity.compact,
-                        foregroundColor: const Color(0xFF818CF8),
+                        foregroundColor: Theme.of(context).colorScheme.secondary,
                       ),
                       onPressed: _restablecerFiltros,
                       icon: const Icon(Icons.close_rounded, size: 14),
@@ -229,7 +245,7 @@ class _LibraryTabState extends State<LibraryTab> {
                       _vistaCuadricula
                           ? Icons.view_list_rounded
                           : Icons.grid_view_rounded,
-                      color: const Color(0xFF818CF8),
+                      color: Theme.of(context).colorScheme.secondary,
                       size: 21,
                     ),
                     tooltip: _vistaCuadricula
@@ -250,6 +266,7 @@ class _LibraryTabState extends State<LibraryTab> {
   }
 
   Widget _barraFiltrosRapidos(BibliotecaController b) {
+    final theme = Theme.of(context);
     final categorias = _obtenerCategorias(b.libros);
 
     return SingleChildScrollView(
@@ -263,7 +280,7 @@ class _LibraryTabState extends State<LibraryTab> {
             etiqueta: 'Todos (${b.libros.length})',
             icono: Icons.auto_stories_rounded,
             esActivo: _filtroRapido == 'todos' && _categoriaSeleccionada == 'Todas',
-            colorActivo: const Color(0xFF6366F1),
+            colorActivo: theme.colorScheme.secondary,
             alTocar: () {
               setState(() {
                 _filtroRapido = 'todos';
@@ -280,8 +297,8 @@ class _LibraryTabState extends State<LibraryTab> {
                 : 'Favoritos',
             icono: Icons.star_rounded,
             esActivo: _filtroRapido == 'favoritos',
-            colorActivo: const Color(0xFFF59E0B),
-            colorIcono: const Color(0xFFF59E0B),
+            colorActivo: const Color(0xFFD4A373),
+            colorIcono: const Color(0xFFD4A373),
             alTocar: () {
               setState(() {
                 if (_filtroRapido == 'favoritos') {
@@ -302,8 +319,8 @@ class _LibraryTabState extends State<LibraryTab> {
                 : 'En lectura',
             icono: Icons.bookmark_rounded,
             esActivo: _filtroRapido == 'en_lectura',
-            colorActivo: const Color(0xFF06B6D4),
-            colorIcono: const Color(0xFF06B6D4),
+            colorActivo: const Color(0xFF8C4E26),
+            colorIcono: const Color(0xFF8C4E26),
             alTocar: () {
               setState(() {
                 if (_filtroRapido == 'en_lectura') {
@@ -323,7 +340,7 @@ class _LibraryTabState extends State<LibraryTab> {
               etiqueta: cat,
               icono: Icons.category_outlined,
               esActivo: _categoriaSeleccionada == cat,
-              colorActivo: const Color(0xFF818CF8),
+              colorActivo: theme.colorScheme.secondary,
               alTocar: () {
                 setState(() {
                   if (_categoriaSeleccionada == cat) {
@@ -349,6 +366,9 @@ class _LibraryTabState extends State<LibraryTab> {
     required Color colorActivo,
     Color? colorIcono,
   }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -359,11 +379,11 @@ class _LibraryTabState extends State<LibraryTab> {
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
           decoration: BoxDecoration(
             color: esActivo
-                ? colorActivo.withValues(alpha: 0.22)
-                : const Color(0xFF141724),
+                ? colorActivo.withValues(alpha: isDark ? 0.3 : 0.16)
+                : theme.colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: esActivo ? colorActivo : const Color(0xFF26293A),
+              color: esActivo ? colorActivo : theme.colorScheme.outlineVariant,
               width: esActivo ? 1.4 : 1.0,
             ),
             boxShadow: esActivo
@@ -384,7 +404,7 @@ class _LibraryTabState extends State<LibraryTab> {
                 size: 15,
                 color: esActivo
                     ? colorActivo
-                    : (colorIcono ?? const Color(0xFF9499B3)),
+                    : (colorIcono ?? theme.colorScheme.onSurfaceVariant),
               ),
               const SizedBox(width: 6),
               Text(
@@ -392,7 +412,9 @@ class _LibraryTabState extends State<LibraryTab> {
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: esActivo ? FontWeight.w600 : FontWeight.w500,
-                  color: esActivo ? Colors.white : const Color(0xFFC7CBD9),
+                  color: esActivo
+                      ? (isDark ? Colors.white : colorActivo)
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -403,76 +425,78 @@ class _LibraryTabState extends State<LibraryTab> {
   }
 
   Widget _botonOrdenar() {
+    final theme = Theme.of(context);
+
     return PopupMenuButton<CriterioOrden>(
       initialValue: _criterioOrden,
       tooltip: 'Ordenar libros',
-      color: const Color(0xFF1E2235),
+      color: theme.cardTheme.color,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFF2A2E44)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
       icon: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: const Color(0xFF141724),
+          color: theme.colorScheme.surfaceContainer,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFF26293A)),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
         ),
-        child: const Icon(
+        child: Icon(
           Icons.swap_vert_rounded,
-          color: Color(0xFF818CF8),
+          color: theme.colorScheme.secondary,
           size: 19,
         ),
       ),
       onSelected: (criterio) => setState(() => _criterioOrden = criterio),
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: CriterioOrden.tituloAZ,
           child: Row(
             children: [
-              Icon(Icons.sort_by_alpha_rounded, size: 18, color: Color(0xFF818CF8)),
-              SizedBox(width: 10),
-              Text('Título (A → Z)', style: TextStyle(color: Color(0xFFF1F0FB), fontSize: 13)),
+              Icon(Icons.sort_by_alpha_rounded, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 10),
+              Text('Título (A → Z)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13)),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: CriterioOrden.tituloZA,
           child: Row(
             children: [
-              Icon(Icons.sort_by_alpha_rounded, size: 18, color: Color(0xFF818CF8)),
-              SizedBox(width: 10),
-              Text('Título (Z → A)', style: TextStyle(color: Color(0xFFF1F0FB), fontSize: 13)),
+              Icon(Icons.sort_by_alpha_rounded, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 10),
+              Text('Título (Z → A)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13)),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: CriterioOrden.anioReciente,
           child: Row(
             children: [
-              Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFF818CF8)),
-              SizedBox(width: 10),
-              Text('Año (Más reciente)', style: TextStyle(color: Color(0xFFF1F0FB), fontSize: 13)),
+              Icon(Icons.calendar_today_rounded, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 10),
+              Text('Año (Más reciente)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13)),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: CriterioOrden.anioAntiguo,
           child: Row(
             children: [
-              Icon(Icons.history_rounded, size: 18, color: Color(0xFF818CF8)),
-              SizedBox(width: 10),
-              Text('Año (Más antiguo)', style: TextStyle(color: Color(0xFFF1F0FB), fontSize: 13)),
+              Icon(Icons.history_rounded, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 10),
+              Text('Año (Más antiguo)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13)),
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: CriterioOrden.paginasMayor,
           child: Row(
             children: [
-              Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF818CF8)),
-              SizedBox(width: 10),
-              Text('Páginas (Mayor a menor)', style: TextStyle(color: Color(0xFFF1F0FB), fontSize: 13)),
+              Icon(Icons.menu_book_rounded, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 10),
+              Text('Páginas (Mayor a menor)', style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13)),
             ],
           ),
         ),
@@ -628,12 +652,12 @@ class _LibraryTabState extends State<LibraryTab> {
               child: Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161824),
+                  color: Theme.of(context).colorScheme.surfaceContainer,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF26293A), width: 1.2),
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant, width: 1.2),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                      color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.1),
                       blurRadius: 20,
                       spreadRadius: 2,
                     ),
@@ -649,10 +673,10 @@ class _LibraryTabState extends State<LibraryTab> {
                               : Icons.menu_book_rounded,
                   size: 44,
                   color: _filtroRapido == 'favoritos'
-                      ? const Color(0xFFF59E0B)
+                      ? const Color(0xFFD4A373)
                       : _filtroRapido == 'en_lectura'
-                          ? const Color(0xFF06B6D4)
-                          : const Color(0xFF818CF8),
+                          ? const Color(0xFF8C4E26)
+                          : Theme.of(context).colorScheme.secondary,
                 ),
               ),
             ),
@@ -668,10 +692,10 @@ class _LibraryTabState extends State<LibraryTab> {
                             : b.busqueda.isNotEmpty
                                 ? 'Sin resultados para "${b.busqueda}"'
                                 : 'No hay libros registrados aún',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFFF1F0FB),
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -681,12 +705,12 @@ class _LibraryTabState extends State<LibraryTab> {
                 _filtroRapido == 'favoritos'
                     ? 'Toca la estrella ⭐ en el detalle de cualquier libro para guardarlo en favoritos.'
                     : _filtroRapido == 'en_lectura'
-                        ? 'Inicia el modo lectura o añade un marcador para continuar leyendo desde acá.'
+                        ? 'Abre cualquier libro en modo lectura para continuar leyéndolo desde aquí.'
                         : hayFiltroActivo
                             ? 'Prueba seleccionando otra categoría o borra el texto de búsqueda.'
                             : 'Usa el botón Escanear o Subir PDF para digitalizar el primero.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF9499B3)),
+                style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ),
             if (hayFiltroActivo) ...[
@@ -697,8 +721,8 @@ class _LibraryTabState extends State<LibraryTab> {
                   icon: const Icon(Icons.refresh_rounded, size: 16),
                   label: const Text('Ver todos los libros'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF818CF8),
-                    side: const BorderSide(color: Color(0xFF6366F1), width: 1.2),
+                    foregroundColor: Theme.of(context).colorScheme.secondary,
+                    side: BorderSide(color: Theme.of(context).colorScheme.secondary, width: 1.2),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -730,9 +754,9 @@ class _LibraryTabState extends State<LibraryTab> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.68,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
+            childAspectRatio: 0.58,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 16,
           ),
           itemCount: librosFiltrados.length,
           itemBuilder: (context, i) {
@@ -741,6 +765,7 @@ class _LibraryTabState extends State<LibraryTab> {
               libro: libro,
               pendiente: b.esPendiente(libro.id),
               esFavorito: _favoritos.contains(libro.id),
+              progreso: _progresos[libro.id],
               onRetorno: _cargarDatosLocales,
             );
           },
@@ -848,31 +873,56 @@ class _GridBookCard extends StatelessWidget {
   final LibroModel libro;
   final bool pendiente;
   final bool esFavorito;
+  final ProgresoLectura? progreso;
   final VoidCallback? onRetorno;
 
   const _GridBookCard({
     required this.libro,
     required this.pendiente,
     required this.esFavorito,
+    this.progreso,
     this.onRetorno,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final tipo = libro.tipoLibro.toLowerCase();
+    final gradientColors = tipo.contains('historia')
+        ? const [Color(0xFF5A2525), Color(0xFF7E3838)]
+        : tipo.contains('ficci') || tipo.contains('novela')
+            ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)]
+            : tipo.contains('pdf')
+                ? const [Color(0xFF1B3B4B), Color(0xFF2C5E78)]
+                : const [Color(0xFF2C1810), Color(0xFF4A2A1E)];
+
+    final porcentaje = progreso?.porcentaje ?? 0.0;
+    final porcentajeEntero = (porcentaje * 100).round();
+    final esCompletado = porcentaje >= 1.0;
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF141724),
-        borderRadius: BorderRadius.circular(16),
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: pendiente
               ? Colors.amber.shade700.withValues(alpha: 0.5)
-              : const Color(0xFF26293A),
+              : theme.colorScheme.outlineVariant,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           onTap: () async {
             await Navigator.push(
               context,
@@ -887,83 +937,182 @@ class _GridBookCard extends StatelessWidget {
             onRetorno?.call();
           },
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Portada de libro con aspecto editorial y lomo
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFF38BDF8)],
+                      gradient: LinearGradient(
+                        colors: gradientColors,
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.black.withValues(alpha: 0.18),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
+                          blurRadius: 6,
+                          offset: const Offset(1, 3),
+                        ),
+                      ],
                     ),
                     child: Stack(
                       children: [
-                        const Center(
-                          child: Icon(
-                            Icons.auto_stories_rounded,
-                            size: 40,
-                            color: Colors.white,
-                          ),
-                        ),
-                        if (esFavorito)
-                          const Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Icon(
-                              Icons.star_rounded,
-                              color: Color(0xFFF59E0B),
-                              size: 18,
+                        // Franja de efecto de lomo a la izquierda
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          width: 6,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(8),
+                                bottomLeft: Radius.circular(8),
+                              ),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.45),
+                                  Colors.white.withValues(alpha: 0.15),
+                                  Colors.black.withValues(alpha: 0.25),
+                                ],
+                              ),
                             ),
                           ),
+                        ),
+                        // Contenido de la portada
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      tipo.contains('pdf') ? 'PDF' : libro.tipoLibro,
+                                      style: const TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFFFCF9F4),
+                                      ),
+                                    ),
+                                  ),
+                                  if (esFavorito)
+                                    const Icon(
+                                      Icons.star_rounded,
+                                      color: Color(0xFFD4A373),
+                                      size: 16,
+                                    ),
+                                ],
+                              ),
+                              const Spacer(),
+                              Text(
+                                libro.titulo,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'Literata',
+                                  color: Color(0xFFFCF9F4),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10.5,
+                                  height: 1.15,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                libro.autor,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'Newsreader',
+                                  color: const Color(0xFFFCF9F4).withValues(alpha: 0.8),
+                                  fontSize: 9,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+                // Metadatos fuera de la portada
                 Text(
                   libro.titulo,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
+                    fontFamily: 'Literata',
                     fontWeight: FontWeight.bold,
-                    fontSize: 13.5,
-                    color: Color(0xFFF1F0FB),
+                    fontSize: 12.5,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 4),
                 Text(
                   libro.autor.isEmpty ? 'Autor no especificado' : libro.autor,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Color(0xFF9499B3),
+                  style: TextStyle(
+                    fontFamily: 'Newsreader',
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 6),
+                // Medidor de progreso dorado
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${libro.anioInicio}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFFC6BFFF),
-                        fontWeight: FontWeight.w600,
+                      esCompletado
+                          ? 'Completado'
+                          : porcentajeEntero > 0
+                              ? 'Leído'
+                              : '${libro.anioInicio}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    if (pendiente)
-                      const Icon(
-                        Icons.cloud_upload_outlined,
-                        size: 14,
-                        color: Colors.amber,
+                    Text(
+                      esCompletado
+                          ? '100%'
+                          : porcentajeEntero > 0
+                              ? '$porcentajeEntero%'
+                              : '${libro.paginas.length} pág.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.secondary,
                       ),
+                    ),
                   ],
+                ),
+                const SizedBox(height: 3),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: porcentajeEntero > 0 ? porcentaje : 0.0,
+                    minHeight: 3,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.secondary),
+                  ),
                 ),
               ],
             ),

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../controllers/biblioteca_controller.dart';
+import '../controllers/theme_controller.dart';
 import '../services/api_service.dart';
-import 'widgets/login_screen.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/library_tab.dart';
 import 'tabs/scan_tab.dart';
 import 'tabs/upload_pdf_tab.dart';
-import '../controllers/biblioteca_controller.dart';
+import 'widgets/login_screen.dart';
 
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
@@ -79,7 +80,7 @@ class _AppShellState extends State<_AppShell> {
   late final BibliotecaController _biblioteca;
   int _indice = 0;
 
-  static const _titulos = ['Inicio', 'Subir PDF', 'Libros'];
+  static const _titulos = ['Inicio', 'Subir PDF', 'Mi Biblioteca'];
 
   @override
   void initState() {
@@ -107,6 +108,9 @@ class _AppShellState extends State<_AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -114,15 +118,18 @@ class _AppShellState extends State<_AppShell> {
             Container(
               padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFF818CF8)],
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.secondary,
+                    theme.colorScheme.tertiary,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                    color: theme.colorScheme.secondary.withValues(alpha: 0.25),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -138,19 +145,19 @@ class _AppShellState extends State<_AppShell> {
                 children: [
                   Text(
                     _titulos[_indice],
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 17,
-                      color: Color(0xFFF1F0FB),
+                      color: theme.colorScheme.onSurface,
                       letterSpacing: -0.2,
                     ),
                   ),
-                  const Text(
+                  Text(
                     'Biblioteca Digital',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: Color(0xFF9499B3),
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -159,6 +166,13 @@ class _AppShellState extends State<_AppShell> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(
+              isDark ? Icons.light_mode_rounded : Icons.dark_mode_outlined,
+            ),
+            tooltip: isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro',
+            onPressed: () => ThemeController.instance.alternarTema(),
+          ),
           IconButton(
             icon: const Icon(Icons.camera_alt_outlined),
             tooltip: 'Escanear libro con cámara',
@@ -173,69 +187,48 @@ class _AppShellState extends State<_AppShell> {
             biblioteca: _biblioteca,
             onEscanear: _abrirEscaneo,
             onVerLibros: _irALibros,
+            onSubirPdf: () => _irA(1),
           ),
           UploadPdfTab(biblioteca: _biblioteca, onGuardado: _irALibros),
           LibraryTab(biblioteca: _biblioteca),
         ],
       ),
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF6366F1).withValues(alpha: 0.45),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: FloatingActionButton.extended(
-          elevation: 0,
-          highlightElevation: 0,
-          focusElevation: 0,
-          hoverElevation: 0,
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.white,
-          onPressed: _abrirEscaneo,
-          icon: const Icon(Icons.camera_alt),
-          label: const Text(
-            'Escanear',
-            style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.3),
-          ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: theme.colorScheme.secondary,
+        foregroundColor: theme.colorScheme.onSecondary,
+        elevation: 3,
+        onPressed: _abrirEscaneo,
+        icon: const Icon(Icons.add_a_photo_outlined),
+        label: const Text(
+          '+ Añadir libro',
+          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.3),
         ),
       ),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           border: Border(
-            top: BorderSide(color: Color(0xFF1E2235), width: 1),
+            top: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
           ),
         ),
         child: NavigationBar(
           selectedIndex: _indice,
           onDestinationSelected: _irA,
-          backgroundColor: const Color(0xFF10121C),
-          indicatorColor: const Color(0xFF282C44),
           elevation: 0,
-          destinations: const [
+          destinations: [
             NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded, color: Color(0xFF818CF8)),
+              icon: const Icon(Icons.local_library_outlined),
+              selectedIcon: Icon(Icons.local_library_rounded, color: theme.colorScheme.secondary),
               label: 'Inicio',
             ),
             NavigationDestination(
-              icon: Icon(Icons.picture_as_pdf_outlined),
-              selectedIcon: Icon(Icons.picture_as_pdf, color: Color(0xFF818CF8)),
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              selectedIcon: Icon(Icons.picture_as_pdf_rounded, color: theme.colorScheme.secondary),
               label: 'Subir PDF',
             ),
             NavigationDestination(
-              icon: Icon(Icons.library_books_outlined),
-              selectedIcon: Icon(Icons.library_books, color: Color(0xFF818CF8)),
-              label: 'Libros',
+              icon: const Icon(Icons.auto_stories_outlined),
+              selectedIcon: Icon(Icons.auto_stories_rounded, color: theme.colorScheme.secondary),
+              label: 'Biblioteca',
             ),
           ],
         ),

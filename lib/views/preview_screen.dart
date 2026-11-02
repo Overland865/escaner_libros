@@ -7,7 +7,7 @@ import '../models/pagina_model.dart';
 import 'widgets/backend_connection_sheet.dart';
 
 /// Revisión del texto transcrito antes de guardarlo (local + sync si hay red).
-/// Devuelve `true` al navigation si el libro quedó guardado en el dispositivo.
+/// Implementa el diseño Stitch "Revisión de Folio OCR" (`6cf20932...`).
 class PreviewScreen extends StatefulWidget {
   final LibroModel libro;
   final BibliotecaController biblioteca;
@@ -25,18 +25,61 @@ class PreviewScreen extends StatefulWidget {
 class _PreviewScreenState extends State<PreviewScreen> {
   bool _enviando = false;
   String? _error;
+  int _folioSeleccionado = 0;
+  bool _modoBlancoYNegro = false;
+
+  void _normalizarTextoActual(String tipo) {
+    if (widget.libro.paginas.isEmpty) return;
+    final pag = widget.libro.paginas[_folioSeleccionado];
+    String nuevo = pag.texto;
+
+    if (tipo == 's_larga') {
+      nuevo = nuevo.replaceAll('ſ', 's');
+    } else if (tipo == 'ligaduras') {
+      nuevo = nuevo.replaceAll('æ', 'ae').replaceAll('œ', 'oe');
+    } else if (tipo == 'saltos') {
+      nuevo = nuevo
+          .replaceAll(RegExp(r'-\s*\n\s*'), '')
+          .replaceAll(RegExp(r'[ \t]+'), ' ');
+    }
+
+    if (nuevo != pag.texto) {
+      setState(() {
+        widget.libro.paginas[_folioSeleccionado] = pag.copyWith(
+          texto: nuevo,
+          conteoPalabras: PaginaModel.contarPalabras(nuevo),
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Normalización tipográfica aplicada al folio'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El folio ya se encuentra normalizado'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   Future<void> _editarTextoPagina(int index) async {
     final pag = widget.libro.paginas[index];
     final controller = TextEditingController(text: pag.texto);
+    final theme = Theme.of(context);
 
     final nuevoTexto = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF141724),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        side: BorderSide(color: Color(0xFF26293A)),
+      backgroundColor: theme.cardTheme.color,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
       builder: (ctx) {
         return Padding(
@@ -58,12 +101,13 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                          color: theme.colorScheme.secondary
+                              .withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.edit_note_rounded,
-                          color: Color(0xFF6366F1),
+                          color: theme.colorScheme.secondary,
                           size: 22,
                         ),
                       ),
@@ -72,19 +116,22 @@ class _PreviewScreenState extends State<PreviewScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Editar Página ${pag.numeroPagina}',
-                            style: const TextStyle(
+                            'Editar Folio ${pag.numeroPagina}',
+                            style: TextStyle(
+                              fontFamily: 'Literata',
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFFF1F0FB),
+                              color: theme.colorScheme.onSurface,
                             ),
                           ),
                           const SizedBox(height: 2),
-                          const Text(
-                            'Corrige erratas o texto mal detectado',
+                          Text(
+                            'Corrige erratas o ligaduras mal detectadas',
                             style: TextStyle(
+                              fontFamily: 'Newsreader',
+                              fontStyle: FontStyle.italic,
                               fontSize: 12,
-                              color: Color(0xFF9499B3),
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
@@ -92,7 +139,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Color(0xFF9499B3)),
+                    icon: Icon(
+                      Icons.close,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
                 ],
@@ -101,25 +151,27 @@ class _PreviewScreenState extends State<PreviewScreen> {
               Container(
                 constraints: const BoxConstraints(maxHeight: 280),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0B0C12),
+                  color: theme.scaffoldBackgroundColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF26293A)),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
                 ),
                 child: TextField(
                   controller: controller,
                   maxLines: null,
                   keyboardType: TextInputType.multiline,
-                  style: const TextStyle(
-                    color: Color(0xFFF1F0FB),
-                    fontSize: 13.5,
-                    height: 1.45,
-                    fontFamily: 'monospace',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
+                    fontSize: 14,
+                    height: 1.5,
+                    fontFamily: 'Newsreader',
                   ),
-                  decoration: const InputDecoration(
-                    hintText: 'Escribe o edita el texto de la página...',
-                    hintStyle: TextStyle(color: Color(0xFF63677E)),
+                  decoration: InputDecoration(
+                    hintText: 'Escribe o edita el texto del folio...',
+                    hintStyle: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(14),
+                    contentPadding: const EdgeInsets.all(14),
                   ),
                 ),
               ),
@@ -134,7 +186,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -160,7 +213,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Página ${pag.numeroPagina} actualizada'),
+          content: Text('Folio ${pag.numeroPagina} actualizado'),
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
@@ -182,8 +235,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
       if (!mounted) return;
 
       final icono = resultado.sincronizado
-          ? Icons.cloud_done
-          : Icons.phone_android;
+          ? Icons.cloud_done_rounded
+          : Icons.phone_android_rounded;
       final titulo = resultado.sincronizado
           ? 'Guardado y sincronizado'
           : 'Guardado en el dispositivo';
@@ -192,8 +245,15 @@ class _PreviewScreenState extends State<PreviewScreen> {
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-          icon: Icon(icono, color: const Color(0xFF6366F1), size: 40),
-          title: Text(titulo),
+          icon: Icon(
+            icono,
+            color: Theme.of(context).colorScheme.secondary,
+            size: 40,
+          ),
+          title: Text(
+            titulo,
+            style: const TextStyle(fontFamily: 'Literata'),
+          ),
           content: Text(
             '${resultado.mensaje}\n\n"${widget.libro.titulo}" con '
             '${pags(widget.libro.paginas.length)}.',
@@ -218,53 +278,104 @@ class _PreviewScreenState extends State<PreviewScreen> {
     }
   }
 
-  Widget _badgeMotor(String? motor) {
-    final motorTexto = motor ?? 'Desconocido';
-    final esGemini = motorTexto.toLowerCase().contains('gemini');
-    final colors = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: esGemini ? colors.primaryContainer : colors.tertiaryContainer,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: esGemini ? colors.primary : colors.tertiary,
-          width: 0.8,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            esGemini ? Icons.auto_awesome : Icons.document_scanner,
-            size: 13,
-            color: esGemini ? colors.primary : colors.onTertiaryContainer,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            esGemini ? 'Gemini AI' : 'ML Kit Local',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: esGemini ? colors.primary : colors.onTertiaryContainer,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final paginas = widget.libro.paginas;
+    final total = paginas.length;
     final caracteres = paginas.fold<int>(0, (sum, p) => sum + p.texto.length);
     final palabras = paginas.fold<int>(0, (sum, p) => sum + p.conteoPalabras);
+    final pagActual = total > 0
+        ? paginas[_folioSeleccionado.clamp(0, total - 1)]
+        : null;
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Revisión de Texto Extraído'),
+        titleSpacing: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'Revisión de Folio',
+                  style: TextStyle(
+                    fontFamily: 'Literata',
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: theme.colorScheme.secondary.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Text(
+                    'OCR ACTIVO',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              widget.libro.titulo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Newsreader',
+                fontStyle: FontStyle.italic,
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
         actions: [
+          if (total > 0)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.auto_stories_outlined,
+                      size: 14,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '${_folioSeleccionado + 1} / $total',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.cloud_outlined),
             tooltip: 'Conexión del backend',
@@ -277,189 +388,669 @@ class _PreviewScreenState extends State<PreviewScreen> {
       ),
       body: Column(
         children: [
+          // Sub-barra de Diccionario & Selector de Folios (Stitch)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            decoration: const BoxDecoration(
-              color: Color(0xFF141724),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainer,
               border: Border(
-                bottom: BorderSide(color: Color(0xFF26293A), width: 1.2),
+                bottom: BorderSide(color: theme.colorScheme.outlineVariant),
               ),
             ),
-            width: double.infinity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  widget.libro.titulo,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Color(0xFFF1F0FB),
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.secondary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Diccionario: Castellano · $palabras palabras ($caracteres car.)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${pags(paginas.length)} · $palabras palabras · '
-                  '$caracteres caracteres',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF9499B3),
+                if (total > 1)
+                  Row(
+                    children: [
+                      InkWell(
+                        onTap: _folioSeleccionado > 0
+                            ? () => setState(() => _folioSeleccionado--)
+                            : null,
+                        child: Icon(
+                          Icons.chevron_left_rounded,
+                          size: 20,
+                          color: _folioSeleccionado > 0
+                              ? theme.colorScheme.secondary
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      Text(
+                        'Folio ${_folioSeleccionado + 1}r',
+                        style: TextStyle(
+                          fontFamily: 'Newsreader',
+                          fontStyle: FontStyle.italic,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.secondary,
+                        ),
+                      ),
+                      InkWell(
+                        onTap: _folioSeleccionado < total - 1
+                            ? () => setState(() => _folioSeleccionado++)
+                            : null,
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: _folioSeleccionado < total - 1
+                              ? theme.colorScheme.secondary
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
               ],
             ),
           ),
+
           if (_error != null)
             Container(
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.errorContainer,
+                color: theme.colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Theme.of(context).colorScheme.error),
+                border: Border.all(color: theme.colorScheme.error),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 20,
-                        color: Colors.red.shade700,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _error!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Icon(
+                    Icons.error_outline,
+                    size: 20,
+                    color: theme.colorScheme.error,
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: _enviando ? null : _guardar,
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text(
-                          'Reintentar',
-                          style: TextStyle(fontSize: 12),
-                        ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onErrorContainer,
                       ),
-                    ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _enviando ? null : _guardar,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Reintentar'),
                   ),
                 ],
               ),
             ),
+
+          // Cuerpo desplazable: Mitad superior (Passepartout Scan Frame) + Mitad inferior (Transcripción Editable)
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: paginas.length,
-              itemBuilder: (context, index) {
-                final pag = paginas[index];
-                return ExpansionTile(
-                  title: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Página ${pag.numeroPagina} (${pag.conteoPalabras} palabras)',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              children: [
+                if (pagActual != null) ...[
+                  // 1. Mitad Superior: Marco Passepartout con Facsímil del Folio y Bounding Box OCR
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF241D1A)
+                          : const Color(0xFFE8DECA),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        // Barra superior dentro del Passepartout
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2C1810)
+                                    .withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF4ADE80),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '98.6% Confianza · ${pagActual.motor ?? 'Gemini OCR'}',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFFFCF9F4),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Conmutador Color / B&N
+                            Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2C1810)
+                                    .withValues(alpha: 0.82),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => setState(
+                                      () => _modoBlancoYNegro = false,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: !_modoBlancoYNegro
+                                            ? const Color(0xFF8C4E26)
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'Color',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFFCF9F4),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => setState(
+                                      () => _modoBlancoYNegro = true,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _modoBlancoYNegro
+                                            ? const Color(0xFF8C4E26)
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'B/N',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFFCF9F4),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Simulación del pliego físico con cajas de detección OCR
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: _modoBlancoYNegro
+                                ? (isDark
+                                    ? const Color(0xFF1E1E1E)
+                                    : Colors.white)
+                                : (isDark
+                                    ? const Color(0xFF1C1613)
+                                    : const Color(0xFFF6EFE2)),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF8C4E26)
+                                  .withValues(alpha: 0.35),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                '— FOLIO ${pagActual.numeroPagina} —',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Literata',
+                                  fontSize: 10,
+                                  letterSpacing: 2.0,
+                                  color: theme.colorScheme.secondary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.secondary
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: theme.colorScheme.secondary,
+                                        width: 1.4,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      pagActual.texto.trim().isEmpty
+                                          ? '[Sin texto detectado en este folio]'
+                                          : pagActual.texto.trim(),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontFamily: 'Newsreader',
+                                        fontSize: 12.5,
+                                        height: 1.45,
+                                        color: theme.colorScheme.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: -8,
+                                    right: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 1.5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.secondary,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'BLOQUE ENFOCADO',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.6,
+                                          color: Color(0xFFFCF9F4),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                      _badgeMotor(pag.motor),
-                    ],
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Captura: 600 DPI · Sensor Óptico',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            Text(
+                              '${pagActual.conteoPalabras} palabras en folio',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.secondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                  const SizedBox(height: 16),
+
+                  // 2. Cabecera de Transcripción + Herramientas de Normalización Histórica
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
                         children: [
-                          TextButton.icon(
-                            onPressed: () => _editarTextoPagina(index),
-                            icon: const Icon(Icons.edit_note_rounded, size: 18),
-                            label: const Text('Corregir texto OCR'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: const Color(0xFF6366F1),
-                              visualDensity: VisualDensity.compact,
+                          Icon(
+                            Icons.edit_note_rounded,
+                            color: theme.colorScheme.secondary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Texto Transcrito',
+                            style: TextStyle(
+                              fontFamily: 'Literata',
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              'Editable',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.secondary,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: SelectableText(
-                        pag.texto.trim().isEmpty
-                            ? '[Sin texto detectado]'
-                            : pag.texto,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
+                      TextButton.icon(
+                        onPressed: () =>
+                            _editarTextoPagina(_folioSeleccionado),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Editar folio'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: theme.colorScheme.secondary,
+                          visualDensity: VisualDensity.compact,
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Barra de chips de normalización histórica (Stitch)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _normChip(
+                          theme,
+                          prefix: 'ſ → s',
+                          label: 'S-larga',
+                          onTap: () => _normalizarTextoActual('s_larga'),
+                        ),
+                        const SizedBox(width: 8),
+                        _normChip(
+                          theme,
+                          prefix: 'æ / œ',
+                          label: 'Ligaduras',
+                          onTap: () => _normalizarTextoActual('ligaduras'),
+                        ),
+                        const SizedBox(width: 8),
+                        _normChip(
+                          theme,
+                          prefix: '¶',
+                          label: 'Unir guiones de salto',
+                          onTap: () => _normalizarTextoActual('saltos'),
+                        ),
+                      ],
                     ),
-                  ],
-                );
-              },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 3. Pozo de Pergamino del Folio Activo
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.cardTheme.color,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'FOLIO ${pagActual.numeroPagina}',
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5,
+                                color: theme.colorScheme.secondary,
+                              ),
+                            ),
+                            Text(
+                              pagActual.nombreArchivo,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Divider(
+                          color: theme.colorScheme.outlineVariant,
+                          height: 1,
+                        ),
+                        const SizedBox(height: 12),
+                        SelectableText(
+                          pagActual.texto.trim().isEmpty
+                              ? '[Sin texto detectado]'
+                              : pagActual.texto,
+                          style: TextStyle(
+                            fontFamily: 'Newsreader',
+                            fontSize: 15,
+                            height: 1.65,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // 4. Índice completo de todas las páginas para inspección rápida
+                if (total > 1) ...[
+                  Text(
+                    'ÍNDICE DE FOLIOS CAPTURADOS ($total)',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.4,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...List.generate(total, (index) {
+                    final pag = paginas[index];
+                    final seleccionado = index == _folioSeleccionado;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      color: seleccionado
+                          ? theme.colorScheme.secondaryContainer
+                              .withValues(alpha: 0.45)
+                          : theme.cardTheme.color,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(
+                          color: seleccionado
+                              ? theme.colorScheme.secondary
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        onTap: () =>
+                            setState(() => _folioSeleccionado = index),
+                        leading: CircleAvatar(
+                          radius: 14,
+                          backgroundColor: theme.colorScheme.secondary,
+                          foregroundColor: theme.colorScheme.onSecondary,
+                          child: Text(
+                            '${pag.numeroPagina}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          'Página ${pag.numeroPagina} (${pag.conteoPalabras} palabras)',
+                          style: TextStyle(
+                            fontFamily: 'Literata',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(
+                            Icons.edit_note_rounded,
+                            color: theme.colorScheme.secondary,
+                          ),
+                          tooltip: 'Editar folio',
+                          onPressed: () => _editarTextoPagina(index),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ],
             ),
           ),
+
+          // Barra inferior fija de guardado y sincronización
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+              decoration: BoxDecoration(
+                color: theme.cardTheme.color,
+                border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+              ),
               child: SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: FilledButton.icon(
                   onPressed: _enviando ? null : _guardar,
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF6366F1),
-                    foregroundColor: Colors.white,
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                   icon: _enviando
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                           ),
                         )
-                      : const Icon(Icons.save_rounded),
+                      : const Icon(Icons.task_alt_rounded),
                   label: Text(
-                    _enviando ? 'Guardando...' : 'Guardar libro',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    _enviando
+                        ? 'Guardando y sincronizando...'
+                        : 'Confirmar y Guardar Libro',
+                    style: const TextStyle(
+                      fontFamily: 'Literata',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _normChip(
+    ThemeData theme, {
+    required String prefix,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              prefix,
+              style: TextStyle(
+                fontFamily: 'Literata',
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.secondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -3,15 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../controllers/theme_controller.dart';
 import '../models/libro_model.dart';
 import '../models/pagina_model.dart';
 import '../services/local_user_preferences_store.dart';
 
-/// Modo lectura: muestra las páginas del libro a pantalla completa y permite
-/// pasar de una a otra deslizando, con los botones o con la barra inferior.
-///
-/// Un toque sobre el texto muestra/oculta los controles.
-/// Incluye: buscador de texto en el libro, marcadores de página y guardado automático de progreso.
+/// Modo lectura inmersivo — Implementa el diseño Stitch "Modo Lectura" (`e4e35d0c...`):
+/// - Reanudación automática en la página donde se quedó el lector
+/// - Encabezado de página con ornamento clásico `— ❦ —`
+/// - Barra flotante de tinta de resaltado (sepia/ámbar/salvia)
+/// - Pie de lectura con barra dorada de cantos de libro y controles de página.
 class ReadingModeScreen extends StatefulWidget {
   final LibroModel libro;
   final String? idLibro;
@@ -34,8 +35,16 @@ class _TemaLectura {
   final Color fondo;
   final Color texto;
   final Color barra;
+  final Color acento;
 
-  const _TemaLectura(this.nombre, this.icono, this.fondo, this.texto, this.barra);
+  const _TemaLectura(
+    this.nombre,
+    this.icono,
+    this.fondo,
+    this.texto,
+    this.barra,
+    this.acento,
+  );
 }
 
 class _ResultadoBusqueda {
@@ -53,25 +62,28 @@ class _ResultadoBusqueda {
 class _ReadingModeScreenState extends State<ReadingModeScreen> {
   static const _temas = [
     _TemaLectura(
+      'Pergamino',
+      Icons.menu_book_outlined,
+      Color(0xFFFCF9F4),
+      Color(0xFF1C1C19),
+      Color(0xFFF6F3EE),
+      Color(0xFF8C4E26),
+    ),
+    _TemaLectura(
       'Noche',
       Icons.dark_mode_outlined,
-      Color(0xFF0B0C12),
-      Color(0xFFF1F0FB),
-      Color(0xFF141724),
+      Color(0xFF14110F),
+      Color(0xFFEAE0D5),
+      Color(0xFF211B18),
+      Color(0xFFD4A373),
     ),
     _TemaLectura(
       'Sepia',
-      Icons.menu_book_outlined,
+      Icons.wb_sunny_outlined,
       Color(0xFFF4ECD8),
-      Color(0xFF3B2F1E),
-      Color(0xFFE8DCBF),
-    ),
-    _TemaLectura(
-      'Claro',
-      Icons.light_mode_outlined,
-      Color(0xFFFFFFFF),
-      Color(0xFF1A1A1A),
-      Color(0xFFEFEFF4),
+      Color(0xFF2C1810),
+      Color(0xFFEAE0C8),
+      Color(0xFF8C4E26),
     ),
   ];
 
@@ -85,12 +97,8 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
   bool _controlesVisibles = true;
   double _tamanoTexto = 19;
   int _tema = 0;
-
-  // Marcadores y búsqueda
-  Set<int> _marcadores = <int>{};
+  int _colorSubrayado = 0; // 0: Ninguno, 1: Ámbar, 2: Cuero, 3: Salvia
   String _busquedaActiva = '';
-  String? _mensajeAvisoMarcador;
-  Timer? _temporizadorAvisoMarcador;
 
   List<PaginaModel> get _paginas => widget.libro.paginas;
   _TemaLectura get _t => _temas[_tema];
@@ -100,7 +108,9 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
       return widget.idLibro!.trim();
     }
     if (widget.libro.id.trim().isNotEmpty) return widget.libro.id.trim();
-    if (widget.libro.isbnOCodigo.trim().isNotEmpty) return widget.libro.isbnOCodigo.trim();
+    if (widget.libro.isbnOCodigo.trim().isNotEmpty) {
+      return widget.libro.isbnOCodigo.trim();
+    }
     return widget.libro.titulo.trim();
   }
 
@@ -110,6 +120,7 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
     final total = widget.libro.paginas.length;
     _actual = total == 0 ? 0 : widget.paginaInicial.clamp(0, total - 1);
     _controller = PageController(initialPage: _actual);
+    _tema = ThemeController.instance.esOscuro ? 1 : 0;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     _cargarPreferencias();
@@ -119,20 +130,19 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
     try {
       final prog = await _prefs.obtenerProgreso(_libroId);
       if (!mounted) return;
-      if (prog != null) {
+      if (prog != null &&
+          widget.paginaInicial == 0 &&
+          !prog.completado &&
+          prog.ultimaPagina > 0 &&
+          prog.ultimaPagina < _paginas.length) {
         setState(() {
-          _marcadores = Set<int>.from(prog.marcadores);
-          // Si iniciamos sin especificar página (0) pero el usuario ya tenía progreso guardado, saltar a ella
-          if (widget.paginaInicial == 0 &&
-              prog.ultimaPagina > 0 &&
-              prog.ultimaPagina < _paginas.length) {
-            _actual = prog.ultimaPagina;
-            if (_controller.hasClients) {
-              _controller.jumpToPage(_actual);
-            }
+          _actual = prog.ultimaPagina;
+          if (_controller.hasClients) {
+            _controller.jumpToPage(_actual);
           }
         });
       }
+      _guardarProgresoActual();
     } catch (e) {
       debugPrint('Error cargando preferencias de lectura: $e');
     }
@@ -145,7 +155,6 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
         libroId: _libroId,
         pagina: _actual,
         totalPaginas: _paginas.length,
-        marcadores: _marcadores,
       ),
     );
   }
@@ -157,7 +166,6 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
         libroId: _libroId,
         pagina: _actual,
         totalPaginas: _paginas.length,
-        marcadores: _marcadores,
       );
     } catch (e) {
       debugPrint('Error guardando progreso al salir: $e');
@@ -166,7 +174,6 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
 
   @override
   void dispose() {
-    _temporizadorAvisoMarcador?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller.dispose();
     super.dispose();
@@ -190,174 +197,179 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
     });
   }
 
-  void _alternarMarcador() {
-    if (_paginas.isEmpty) return;
-    final pagNum = _paginas[_actual].numeroPagina;
-    final estabaMarcado = _marcadores.contains(_actual);
-    final ahoraMarcado = !estabaMarcado;
-
-    // 1. Actualización inmediata y reactiva de la interfaz
-    setState(() {
-      if (ahoraMarcado) {
-        _marcadores.add(_actual);
-      } else {
-        _marcadores.remove(_actual);
-      }
-      _mensajeAvisoMarcador = ahoraMarcado
-          ? '¡Página $pagNum marcada con éxito! ⭐'
-          : 'Página $pagNum eliminada de marcadores';
-    });
-
-    _temporizadorAvisoMarcador?.cancel();
-    _temporizadorAvisoMarcador = Timer(const Duration(milliseconds: 2500), () {
-      if (mounted) setState(() => _mensajeAvisoMarcador = null);
-    });
-
-    // 2. Notificación flotante de confirmación (visible incluso con controles activos)
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              ahoraMarcado ? Icons.bookmark_added_rounded : Icons.bookmark_remove_outlined,
-              color: ahoraMarcado ? const Color(0xFFF59E0B) : const Color(0xFF9499B3),
-              size: 22,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                ahoraMarcado
-                    ? 'Página $pagNum ha sido marcada en tus marcadores'
-                    : 'Página $pagNum desmarcada',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
-              ),
-            ),
-          ],
-        ),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.only(
-          bottom: _controlesVisibles ? 100 : 24,
-          left: 16,
-          right: 16,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: const Color(0xFF1B1E2D),
-      ),
-    );
-
-    // 3. Persistencia asíncrona segura en almacenamiento local
-    unawaited(
-      _prefs.alternarMarcador(
-        _libroId,
-        _actual,
-        totalPaginas: _paginas.length,
-      ).catchError((e) {
-        debugPrint('Error guardando marcador en preferencias: $e');
-        return false;
-      }),
-    );
-  }
-
-  void _mostrarMarcadores() {
-    final marcadoresOrdenados = _marcadores.toList()..sort();
-
+  void _mostrarPanelTipografia() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF141724),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      backgroundColor: _t.barra,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        side: BorderSide(color: _t.acento.withValues(alpha: 0.3)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: Row(
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.bookmark_rounded, color: Color(0xFF818CF8)),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Marcadores guardados',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFF1F0FB),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: _t.texto.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Color(0xFF9499B3)),
-                      onPressed: () => Navigator.pop(ctx),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'APARIENCIA Y TIPOGRAFÍA',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                            color: _t.acento,
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(Icons.close, size: 18, color: _t.texto),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: List.generate(_temas.length, (idx) {
+                        final item = _temas[idx];
+                        final sel = _tema == idx;
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: idx < _temas.length - 1 ? 8 : 0,
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                setState(() => _tema = idx);
+                                setModalState(() {});
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: item.fondo,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: sel
+                                        ? item.acento
+                                        : item.texto.withValues(alpha: 0.2),
+                                    width: sel ? 2 : 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      item.icono,
+                                      size: 18,
+                                      color: item.acento,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      item.nombre,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: sel
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
+                                        color: item.texto,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _t.fondo,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _t.acento.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton.icon(
+                            onPressed: _tamanoTexto > _tamanoMin
+                                ? () {
+                                    _cambiarTamano(-2);
+                                    setModalState(() {});
+                                  }
+                                : null,
+                            icon: Icon(Icons.text_decrease, color: _t.texto),
+                            label: Text(
+                              'A-',
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontWeight: FontWeight.bold,
+                                color: _t.texto,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'Cuerpo ${_tamanoTexto.round()} pt',
+                            style: TextStyle(
+                              fontFamily: 'Newsreader',
+                              fontStyle: FontStyle.italic,
+                              fontSize: 14,
+                              color: _t.acento,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: _tamanoTexto < _tamanoMax
+                                ? () {
+                                    _cambiarTamano(2);
+                                    setModalState(() {});
+                                  }
+                                : null,
+                            icon: Icon(Icons.text_increase, color: _t.texto),
+                            label: Text(
+                              'A+',
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontWeight: FontWeight.bold,
+                                color: _t.texto,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Divider(color: Color(0xFF26293A)),
-              if (marcadoresOrdenados.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(28.0),
-                  child: Center(
-                    child: Text(
-                      'No tienes páginas marcadas aún.\nToca el icono de marcador en la barra superior para guardar una página.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF9499B3), fontSize: 13),
-                    ),
-                  ),
-                )
-              else
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: marcadoresOrdenados.length,
-                    itemBuilder: (c, i) {
-                      final pagIdx = marcadoresOrdenados[i];
-                      if (pagIdx >= _paginas.length) return const SizedBox.shrink();
-                      final pag = _paginas[pagIdx];
-                      final snippet = pag.texto.trim().replaceAll('\n', ' ');
-                      final preview = snippet.length > 70
-                          ? '${snippet.substring(0, 70)}...'
-                          : snippet;
-
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                          foregroundColor: const Color(0xFFC6BFFF),
-                          child: Text('${pag.numeroPagina}'),
-                        ),
-                        title: Text(
-                          'Página ${pag.numeroPagina}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF1F0FB),
-                          ),
-                        ),
-                        subtitle: Text(
-                          preview.isEmpty ? '[Sin texto]' : preview,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Color(0xFF8B8FA8), fontSize: 12),
-                        ),
-                        trailing: const Icon(Icons.chevron_right, color: Color(0xFF6366F1)),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _irA(pagIdx);
-                        },
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -365,7 +377,7 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF141724),
+      backgroundColor: const Color(0xFF2C1810),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -417,6 +429,25 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                   ? _vacio()
                   : Stack(
                       children: [
+                        // Sombra sutil de pliegue de encuadernación a la izquierda
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          width: 14,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.black.withValues(alpha: 0.08),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                         PageView.builder(
                           controller: _controller,
                           itemCount: total,
@@ -424,10 +455,9 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                             setState(() => _actual = i);
                             _guardarProgresoActual();
                           },
-                          itemBuilder: (_, i) => _pagina(i),
+                          itemBuilder: (_, i) => _pagina(i, total),
                         ),
                         if (_busquedaActiva.isNotEmpty) _bannerBusquedaActiva(),
-                        if (_mensajeAvisoMarcador != null) _bannerAvisoMarcador(),
                         _barraSuperior(total),
                         _barraInferior(total),
                       ],
@@ -441,7 +471,7 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
 
   Widget _bannerBusquedaActiva() {
     return Positioned(
-      top: 60,
+      top: 64,
       left: 16,
       right: 16,
       child: AnimatedOpacity(
@@ -450,20 +480,18 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFF1C2033),
+            color: const Color(0xFF2C1810),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF6366F1), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 10,
-              ),
-            ],
+            border: Border.all(color: const Color(0xFFD4A373), width: 1.2),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.search_rounded, size: 16, color: Color(0xFF818CF8)),
+              const Icon(
+                Icons.search_rounded,
+                size: 16,
+                color: Color(0xFFD4A373),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -473,12 +501,16 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                   style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFFF1F0FB),
+                    color: Color(0xFFFCF9F4),
                   ),
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF9499B3)),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: Color(0xFFD4A373),
+                ),
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -518,123 +550,178 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
     );
   }
 
-  Widget _bannerAvisoMarcador() {
-    return Positioned(
-      top: 64,
-      left: 20,
-      right: 20,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1F2438),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFF59E0B), width: 1.4),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.bookmark_added_rounded, color: Color(0xFFF59E0B), size: 20),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  _mensajeAvisoMarcador!,
-                  style: const TextStyle(
-                    color: Color(0xFFF1F0FB),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+  Widget _pagina(int i, int total) {
+    final pag = _paginas[i];
+    final texto = pag.texto.trim().isEmpty
+        ? '[Sin texto transcrito]'
+        : pag.texto.trim();
+
+    Color? bgHighlight;
+    if (_colorSubrayado == 1) {
+      bgHighlight = const Color(0xFFD4A373).withValues(alpha: 0.22);
+    } else if (_colorSubrayado == 2) {
+      bgHighlight = const Color(0xFF8C4E26).withValues(alpha: 0.16);
+    } else if (_colorSubrayado == 3) {
+      bgHighlight = const Color(0xFF708264).withValues(alpha: 0.22);
+    }
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 68, 28, 128),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Encabezado clásico de la página
+                Center(
+                  child: Column(
+                    children: [
+                      Text(
+                        'Página ${pag.numeroPagina}',
+                        style: TextStyle(
+                          fontFamily: 'Literata',
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: _t.texto,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 1,
+                            color: _t.acento.withValues(alpha: 0.35),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                            ),
+                            child: Text(
+                              '❦',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _t.acento,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 32,
+                            height: 1,
+                            color: _t.acento.withValues(alpha: 0.35),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+
+                // Barra Contextual de Tinta de Resaltado (sin marcador manual)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C1810),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFD4A373).withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _tintDot(1, const Color(0xFFD4A373), 'Tinta ámbar'),
+                        const SizedBox(width: 6),
+                        _tintDot(2, const Color(0xFFC48B5E), 'Tinta sepia'),
+                        const SizedBox(width: 6),
+                        _tintDot(3, const Color(0xFF708264), 'Tinta salvia'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Cuerpo literario
+                Container(
+                  padding: bgHighlight != null
+                      ? const EdgeInsets.all(12)
+                      : EdgeInsets.zero,
+                  decoration: bgHighlight != null
+                      ? BoxDecoration(
+                          color: bgHighlight,
+                          borderRadius: BorderRadius.circular(8),
+                        )
+                      : null,
+                  child: _busquedaActiva.isEmpty
+                      ? SelectableText(
+                          texto,
+                          onTap: _toggleControles,
+                          style: TextStyle(
+                            color: _t.texto,
+                            fontFamily: 'Newsreader',
+                            fontSize: _tamanoTexto,
+                            height: 1.75,
+                          ),
+                        )
+                      : SelectableText.rich(
+                          TextSpan(
+                            children: _construirSpansResaltados(
+                              texto,
+                              _busquedaActiva,
+                            ),
+                            style: TextStyle(
+                              color: _t.texto,
+                              fontFamily: 'Newsreader',
+                              fontSize: _tamanoTexto,
+                              height: 1.75,
+                            ),
+                          ),
+                          onTap: _toggleControles,
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _pagina(int i) {
-    final pag = _paginas[i];
-    final texto = pag.texto.trim().isEmpty
-        ? '[Sin texto transcrito]'
-        : pag.texto.trim();
-    final estaMarcado = _marcadores.contains(i);
-
-    return SafeArea(
-      child: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 72, 24, 96),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 680),
-                child: _busquedaActiva.isEmpty
-                    ? SelectableText(
-                        texto,
-                        onTap: _toggleControles,
-                        style: TextStyle(
-                          color: _t.texto,
-                          fontFamily: 'serif',
-                          fontSize: _tamanoTexto,
-                          height: 1.7,
-                        ),
-                      )
-                    : SelectableText.rich(
-                        TextSpan(
-                          children: _construirSpansResaltados(texto, _busquedaActiva),
-                          style: TextStyle(
-                            color: _t.texto,
-                            fontFamily: 'serif',
-                            fontSize: _tamanoTexto,
-                            height: 1.7,
-                          ),
-                        ),
-                        onTap: _toggleControles,
-                      ),
-              ),
+  Widget _tintDot(int index, Color color, String tooltip) {
+    final activo = _colorSubrayado == index;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: () => setState(
+          () => _colorSubrayado = (_colorSubrayado == index ? 0 : index),
+        ),
+        child: Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: activo ? Colors.white : Colors.white38,
+              width: activo ? 2 : 1,
             ),
           ),
-          if (estaMarcado)
-            Positioned(
-              top: 14,
-              right: 18,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF59E0B).withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.7)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.bookmark_rounded, color: Color(0xFFF59E0B), size: 14),
-                    SizedBox(width: 4),
-                    Text(
-                      'Página marcada',
-                      style: TextStyle(
-                        color: Color(0xFFF59E0B),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
 
-  List<TextSpan> _construirSpansResaltados(String textoCompleto, String termino) {
+  List<TextSpan> _construirSpansResaltados(
+    String textoCompleto,
+    String termino,
+  ) {
     if (termino.isEmpty) {
       return [TextSpan(text: textoCompleto)];
     }
@@ -649,8 +736,8 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
         TextSpan(
           text: match.group(0),
           style: TextStyle(
-            backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.55),
-            color: Colors.white,
+            backgroundColor: const Color(0xFFD4A373).withValues(alpha: 0.55),
+            color: _t.texto,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -664,8 +751,6 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
   }
 
   Widget _barraSuperior(int total) {
-    final estaMarcado = _marcadores.contains(_actual);
-
     return Positioned(
       top: 0,
       left: 0,
@@ -679,8 +764,8 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
           child: IgnorePointer(
             ignoring: !_controlesVisibles,
             child: Material(
-              color: _t.barra,
-              elevation: 2,
+              color: _t.barra.withValues(alpha: 0.96),
+              elevation: 1,
               child: SafeArea(
                 bottom: false,
                 child: SizedBox(
@@ -688,7 +773,7 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                   child: Row(
                     children: [
                       IconButton(
-                        icon: Icon(Icons.close, color: _t.texto),
+                        icon: Icon(Icons.arrow_back_rounded, color: _t.texto),
                         tooltip: 'Salir del modo lectura',
                         onPressed: () async {
                           await _guardarProgresoYSaliendo();
@@ -697,15 +782,32 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                         },
                       ),
                       Expanded(
-                        child: Text(
-                          widget.libro.titulo,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _t.texto,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.libro.titulo,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontStyle: FontStyle.italic,
+                                color: _t.texto,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              'PÁGINA ${_actual + 1} DE $total',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                                color: _t.acento,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       IconButton(
@@ -717,46 +819,11 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         icon: Icon(
-                          estaMarcado
-                              ? Icons.bookmark_rounded
-                              : Icons.bookmark_border_rounded,
-                          color: estaMarcado ? const Color(0xFFF59E0B) : _t.texto,
-                          size: 24,
+                          Icons.text_fields_rounded,
+                          color: _t.acento,
                         ),
-                        tooltip: estaMarcado
-                            ? 'Quitar marcador de esta página'
-                            : 'Marcar esta página',
-                        onPressed: _alternarMarcador,
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(Icons.bookmarks_outlined, color: _t.texto),
-                        tooltip: 'Ver lista de marcadores',
-                        onPressed: _mostrarMarcadores,
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(Icons.text_decrease, color: _t.texto),
-                        tooltip: 'Reducir letra',
-                        onPressed: _tamanoTexto > _tamanoMin
-                            ? () => _cambiarTamano(-2)
-                            : null,
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(Icons.text_increase, color: _t.texto),
-                        tooltip: 'Aumentar letra',
-                        onPressed: _tamanoTexto < _tamanoMax
-                            ? () => _cambiarTamano(2)
-                            : null,
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(_t.icono, color: _t.texto),
-                        tooltip: 'Tema: ${_t.nombre}',
-                        onPressed: () => setState(
-                          () => _tema = (_tema + 1) % _temas.length,
-                        ),
+                        tooltip: 'Opciones de tipografía y tema',
+                        onPressed: _mostrarPanelTipografia,
                       ),
                     ],
                   ),
@@ -772,6 +839,7 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
   Widget _barraInferior(int total) {
     final puedeAtras = _actual > 0;
     final puedeAdelante = _actual < total - 1;
+    final porcentaje = total > 0 ? (((_actual + 1) / total) * 100).round() : 0;
 
     return Positioned(
       bottom: 0,
@@ -786,47 +854,83 @@ class _ReadingModeScreenState extends State<ReadingModeScreen> {
           child: IgnorePointer(
             ignoring: !_controlesVisibles,
             child: Material(
-              color: _t.barra,
+              color: _t.barra.withValues(alpha: 0.96),
               elevation: 4,
               child: SafeArea(
                 top: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        'Página ${_paginas[_actual].numeroPagina} de $total',
-                        style: TextStyle(
-                          color: _t.texto,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Página ${_paginas[_actual].numeroPagina} de $total',
+                                style: TextStyle(
+                                  fontFamily: 'Literata',
+                                  color: _t.texto,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '($porcentaje%)',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: _t.acento,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            'Tema: ${_t.nombre}',
+                            style: TextStyle(
+                              fontFamily: 'Newsreader',
+                              fontStyle: FontStyle.italic,
+                              fontSize: 11.5,
+                              color: _t.texto.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
                       ),
                       Row(
                         children: [
                           IconButton(
                             icon: Icon(Icons.chevron_left, color: _t.texto),
-                            iconSize: 32,
+                            iconSize: 30,
                             tooltip: 'Página anterior',
                             onPressed:
                                 puedeAtras ? () => _irA(_actual - 1) : null,
                           ),
                           Expanded(
                             child: total > 1
-                                ? Slider(
-                                    value: _actual.toDouble(),
-                                    min: 0,
-                                    max: (total - 1).toDouble(),
-                                    divisions: total - 1,
-                                    onChanged: (v) =>
-                                        _controller.jumpToPage(v.round()),
+                                ? SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      activeTrackColor: _t.acento,
+                                      thumbColor: _t.acento,
+                                      inactiveTrackColor: _t.acento
+                                          .withValues(alpha: 0.22),
+                                    ),
+                                    child: Slider(
+                                      value: _actual.toDouble(),
+                                      min: 0,
+                                      max: (total - 1).toDouble(),
+                                      divisions: total - 1,
+                                      onChanged: (v) =>
+                                          _controller.jumpToPage(v.round()),
+                                    ),
                                   )
                                 : const SizedBox.shrink(),
                           ),
                           IconButton(
                             icon: Icon(Icons.chevron_right, color: _t.texto),
-                            iconSize: 32,
+                            iconSize: 30,
                             tooltip: 'Página siguiente',
                             onPressed: puedeAdelante
                                 ? () => _irA(_actual + 1)
@@ -930,26 +1034,27 @@ class _BuscadorEnLibroSheetState extends State<_BuscadorEnLibroSheet> {
         MediaQuery.of(context).viewInsets.bottom + 16,
       ),
       child: SizedBox(
-        height: 480,
+        height: 460,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                const Icon(Icons.search_rounded, color: Color(0xFF818CF8)),
+                const Icon(Icons.search_rounded, color: Color(0xFFD4A373)),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Buscar dentro del libro',
+                    'Buscar dentro del tomo',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontFamily: 'Literata',
+                      fontSize: 17,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFF1F0FB),
+                      color: Color(0xFFFCF9F4),
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFF9499B3)),
+                  icon: const Icon(Icons.close, color: Color(0xFFD4A373)),
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
@@ -958,23 +1063,34 @@ class _BuscadorEnLibroSheetState extends State<_BuscadorEnLibroSheet> {
             TextField(
               controller: _inputController,
               autofocus: true,
-              style: const TextStyle(color: Color(0xFFF1F0FB)),
+              style: const TextStyle(color: Color(0xFFFCF9F4)),
               textInputAction: TextInputAction.search,
               onSubmitted: _ejecutarBusqueda,
               decoration: InputDecoration(
-                hintText: 'Palabra o frase a buscar...',
-                hintStyle: const TextStyle(color: Color(0xFF646B87)),
+                hintText: 'Palabra o pasaje a buscar...',
+                hintStyle: TextStyle(
+                  color: const Color(0xFFEDE7DF).withValues(alpha: 0.55),
+                ),
                 filled: true,
-                fillColor: const Color(0xFF1B1E2E),
-                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF818CF8)),
+                fillColor: const Color(0xFF1A110D),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: Color(0xFFD4A373),
+                ),
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF818CF8)),
+                  icon: const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Color(0xFFD4A373),
+                  ),
                   onPressed: () => _ejecutarBusqueda(_inputController.text),
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF2E3249)),
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFF8C4E26)),
                 ),
               ),
             ),
@@ -983,16 +1099,17 @@ class _BuscadorEnLibroSheetState extends State<_BuscadorEnLibroSheet> {
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24.0),
-                  child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+                  child: CircularProgressIndicator(color: Color(0xFFD4A373)),
                 ),
               )
-            else if (_inputController.text.trim().isNotEmpty && _resultados.isEmpty)
+            else if (_inputController.text.trim().isNotEmpty &&
+                _resultados.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 40),
                 child: Center(
                   child: Text(
                     'No se encontraron coincidencias en las páginas.',
-                    style: TextStyle(color: Color(0xFF9499B3), fontSize: 13),
+                    style: TextStyle(color: Color(0xFFEDE7DF), fontSize: 13),
                   ),
                 ),
               )
@@ -1005,38 +1122,48 @@ class _BuscadorEnLibroSheetState extends State<_BuscadorEnLibroSheet> {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFC6BFFF),
+                      color: Color(0xFFD4A373),
                     ),
                   ),
                 ),
               Expanded(
                 child: ListView.separated(
                   itemCount: _resultados.length,
-                  separatorBuilder: (context, index) => const Divider(color: Color(0xFF26293A), height: 1),
+                  separatorBuilder: (context, index) => Divider(
+                    color: const Color(0xFFD4A373).withValues(alpha: 0.2),
+                    height: 1,
+                  ),
                   itemBuilder: (ctx, i) {
                     final r = _resultados[i];
                     return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       leading: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
+                          color: const Color(0xFF8C4E26),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
                           'Pág. ${r.numeroPagina}',
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 11.5,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF818CF8),
+                            color: Color(0xFFFCF9F4),
                           ),
                         ),
                       ),
                       title: Text(
                         r.fragmento,
                         style: const TextStyle(
-                          fontSize: 12.5,
-                          color: Color(0xFFD4D8EE),
+                          fontFamily: 'Newsreader',
+                          fontSize: 13,
+                          color: Color(0xFFEDE7DF),
                         ),
                       ),
                       onTap: () => widget.onSeleccionarResultado(

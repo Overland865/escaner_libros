@@ -29,6 +29,12 @@ class ProgresoLectura {
 
   int get porcentajeEntero => (porcentaje * 100).round();
 
+  /// Indica si el lector ya llegó a la última página del libro.
+  bool get completado => totalPaginas > 0 && ultimaPagina >= totalPaginas - 1;
+
+  /// Indica si el libro tiene lectura iniciada pero aún no ha llegado a la última página.
+  bool get enLectura => totalPaginas > 0 && ultimaPagina >= 0 && !completado;
+
   Map<String, dynamic> toJson() => {
         'libroId': libroId,
         'ultimaPagina': ultimaPagina,
@@ -87,6 +93,37 @@ class LocalUserPreferencesStore {
   Future<File> _archivoFavoritos() async {
     final raiz = await _raiz();
     return File(p.join(raiz.path, 'favoritos.json'));
+  }
+
+  Future<File> _archivoTema() async {
+    final raiz = await _raiz();
+    return File(p.join(raiz.path, 'tema_preferido.json'));
+  }
+
+  // --- TEMA CLARO / OSCURO ---
+
+  Future<String?> obtenerTema() async {
+    try {
+      final f = await _archivoTema();
+      if (!await f.exists()) return null;
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is Map<String, dynamic>) {
+        return raw['modo'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('LocalUserPreferencesStore: error leyendo tema: $e');
+      return null;
+    }
+  }
+
+  Future<void> guardarTema(String modo) async {
+    try {
+      final f = await _archivoTema();
+      await f.writeAsString(jsonEncode({'modo': modo}));
+    } catch (e) {
+      debugPrint('LocalUserPreferencesStore: error guardando tema: $e');
+    }
   }
 
   // --- PROGRESO DE LECTURA ---
@@ -196,7 +233,8 @@ class LocalUserPreferencesStore {
     return progreso?.marcadores ?? <int>{};
   }
 
-  /// Retorna los IDs de todos los libros que tienen progreso guardado o marcadores de página.
+  /// Retorna los IDs de todos los libros que están actualmente "En lectura"
+  /// (tienen progreso iniciado pero aún no han llegado a la última página).
   Future<Set<String>> obtenerLibrosConMarcadores() async {
     try {
       final f = await _archivoProgreso();
@@ -205,16 +243,15 @@ class LocalUserPreferencesStore {
       for (final entry in mapa.entries) {
         final val = entry.value;
         if (val is Map<String, dynamic>) {
-          final marcadores = val['marcadores'] as List?;
-          final ultimaPagina = (val['ultimaPagina'] as num?)?.toInt() ?? 0;
-          if ((marcadores != null && marcadores.isNotEmpty) || ultimaPagina > 0) {
+          final prog = ProgresoLectura.fromJson(val);
+          if (prog.enLectura) {
             resultado.add(entry.key);
           }
         }
       }
       return resultado;
     } catch (e) {
-      debugPrint('LocalUserPreferencesStore: error leyendo libros con marcadores: $e');
+      debugPrint('LocalUserPreferencesStore: error leyendo libros en lectura: $e');
       return <String>{};
     }
   }
