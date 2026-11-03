@@ -25,17 +25,17 @@ class PaginaModel {
       };
 
   factory PaginaModel.fromJson(Map<String, dynamic> json) {
+    final rawNumero = json['numero_pagina'] ?? json['numeroPagina'] ?? json['numero'];
+    final rawConteo = json['conteo_palabras'] ?? json['conteoPalabras'];
+    final texto = (json['texto'] ?? '').toString();
+
     return PaginaModel(
-      numeroPagina:
-          json['numero_pagina'] as int? ?? json['numeroPagina'] as int? ?? 1,
-      nombreArchivo: json['nombre_archivo'] as String? ?? 'pagina.txt',
-      conteoPalabras: json['conteo_palabras'] as int? ??
-          (json['texto'] as String? ?? '')
-              .trim()
-              .split(RegExp(r'\s+'))
-              .where((s) => s.isNotEmpty)
-              .length,
-      texto: json['texto'] as String? ?? '',
+      numeroPagina: (rawNumero is num) ? rawNumero.toInt() : (int.tryParse('$rawNumero') ?? 1),
+      nombreArchivo: (json['nombre_archivo'] ?? 'pagina.txt').toString(),
+      conteoPalabras: (rawConteo is num)
+          ? rawConteo.toInt()
+          : texto.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).length,
+      texto: texto,
       confianza: (json['confianza'] as num?)?.toDouble(),
       motor: json['motor_transcripcion'] as String? ?? json['motor'] as String?,
     );

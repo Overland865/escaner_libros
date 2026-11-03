@@ -63,16 +63,20 @@ class LibroModel {
   }
 
   factory LibroModel.fromJson(Map<String, dynamic> json) {
-    final periodo = json['periodo'] as Map<String, dynamic>?;
-    final anioInicio = periodo?['anio_inicio'] as int? ?? 1800;
-    final anioFin = periodo?['anio_fin'] as int? ?? 1900;
+    final periodo = json['periodo'] is Map ? (json['periodo'] as Map) : null;
+    final anioInicio = (periodo?['anio_inicio'] as num?)?.toInt() ??
+        (json['anio_publicacion'] as num?)?.toInt() ??
+        1800;
+    final anioFin = (periodo?['anio_fin'] as num?)?.toInt() ??
+        (json['anio_publicacion'] as num?)?.toInt() ??
+        1900;
 
     final rawPaginas = json['paginas'] as List?;
     final List<PaginaModel> listaPaginas = [];
     if (rawPaginas != null) {
       for (final p in rawPaginas) {
-        if (p is Map<String, dynamic>) {
-          listaPaginas.add(PaginaModel.fromJson(p));
+        if (p is Map) {
+          listaPaginas.add(PaginaModel.fromJson(Map<String, dynamic>.from(p)));
         }
       }
     }
@@ -86,13 +90,13 @@ class LibroModel {
     }
 
     return LibroModel(
-      id: json['_id'] as String? ?? json['isbn_o_codigo'] as String? ?? '',
+      id: json['_id']?.toString() ?? json['isbn_o_codigo']?.toString() ?? '',
       isbnOCodigo:
-          json['isbn_o_codigo'] as String? ?? json['_id'] as String? ?? '',
-      titulo: json['titulo'] as String? ?? 'Sin Título',
-      autor: json['autor'] as String? ?? '',
-      editorial: json['editorial'] as String? ?? '',
-      tipoLibro: json['tipo_libro'] as String? ?? 'General',
+          json['isbn_o_codigo']?.toString() ?? json['_id']?.toString() ?? '',
+      titulo: json['titulo']?.toString() ?? 'Sin Título',
+      autor: json['autor']?.toString() ?? '',
+      editorial: json['editorial']?.toString() ?? '',
+      tipoLibro: json['tipo_libro']?.toString() ?? 'General',
       anioInicio: anioInicio,
       anioFin: anioFin,
       palabrasClave: keywords,

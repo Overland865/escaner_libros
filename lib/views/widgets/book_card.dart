@@ -207,6 +207,7 @@ class BookCard extends StatelessWidget {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
+                      constraints: const BoxConstraints(maxWidth: 220),
                       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                       decoration: BoxDecoration(
                         color: colors.secondaryContainer.withValues(alpha: isDark ? 0.4 : 0.8),
@@ -216,7 +217,9 @@ class BookCard extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        libro.tipoLibro,
+                        libro.tipoLibro.replaceFirst(RegExp(r'^Category:\s*', caseSensitive: false), ''),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5,
                           color: isDark ? colors.secondary : const Color(0xFF6E3616),

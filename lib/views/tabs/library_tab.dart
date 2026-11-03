@@ -995,27 +995,35 @@ class _GridBookCard extends StatelessWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.65),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      tipo.contains('pdf') ? 'PDF' : libro.tipoLibro,
-                                      style: const TextStyle(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFFFCF9F4),
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.65),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        tipo.contains('pdf')
+                                            ? 'PDF'
+                                            : libro.tipoLibro.replaceFirst(RegExp(r'^Category:\s*', caseSensitive: false), ''),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFFCF9F4),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                  if (esFavorito)
+                                  if (esFavorito) ...[
+                                    const SizedBox(width: 4),
                                     const Icon(
                                       Icons.star_rounded,
                                       color: Color(0xFFD4A373),
                                       size: 16,
                                     ),
+                                  ],
                                 ],
                               ),
                               const Spacer(),

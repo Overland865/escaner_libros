@@ -56,16 +56,20 @@ class ScanTab extends StatelessWidget {
                 color: theme.colorScheme.secondary,
               ),
               const SizedBox(width: 6),
-              Text(
-                'ARCHIVO HISTÓRICO DIGITAL',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.8,
-                  color: theme.colorScheme.secondary,
+              Expanded(
+                child: Text(
+                  'ARCHIVO HISTÓRICO DIGITAL',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5,
+                    color: theme.colorScheme.secondary,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                 decoration: BoxDecoration(
