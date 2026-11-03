@@ -5,11 +5,27 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/libro_model.dart';
 import 'local_user_preferences_store.dart';
+
+/// Reduce la foto (orientación correcta, máx. 1600 px, JPEG 85 %) antes del OCR.
+/// Función de nivel superior para poder ejecutarse con `compute` en un isolate.
+Uint8List _optimizarImagenOcr(Uint8List bytes) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return bytes;
+  img.Image procesada = img.bakeOrientation(decoded);
+  const int maxDim = 1600;
+  if (procesada.width > maxDim || procesada.height > maxDim) {
+    procesada = procesada.width >= procesada.height
+        ? img.copyResize(procesada, width: maxDim, interpolation: img.Interpolation.linear)
+        : img.copyResize(procesada, height: maxDim, interpolation: img.Interpolation.linear);
+  }
+  return Uint8List.fromList(img.encodeJpg(procesada, quality: 85));
+}
 
 /// Resultado paginado de libros desde la API.
 class ResultadoLibrosPaginados {
@@ -469,14 +485,29 @@ class ApiService {
       throw ApiException('La imagen no existe en la ruta: $pathImagen');
     }
 
-    final bytes = await file.readAsBytes();
+    Uint8List bytes = await file.readAsBytes();
+    const String mimeType = 'image/jpeg';
+
+    try {
+      // Se ejecuta en un isolate para no congelar la interfaz.
+      bytes = await compute(_optimizarImagenOcr, bytes);
+    } catch (e) {
+      debugPrint('No se pudo optimizar la imagen antes del OCR: $e');
+    }
     final base64Image = base64Encode(bytes);
-    final ext = pathImagen.toLowerCase().split('.').last;
-    final mimeType = ext == 'png'
-        ? 'image/png'
-        : ext == 'webp'
-        ? 'image/webp'
-        : 'image/jpeg';
+
+
+
+
+
+
+
+    // Si la app tiene su propia clave, se llama a Gemini directamente:
+    // evita la latencia (y los arranques en frío) del backend en Render.
+    final claveGemini = (dotenv.maybeGet('GEMINI_API_KEY') ?? '').trim();
+    if (claveGemini.isNotEmpty) {
+      return _transcribirDirectoConGemini(base64Image, mimeType, claveGemini);
+    }
 
     final res = await _post('/api/transcribir', {
       'imagen': base64Image,
@@ -488,6 +519,104 @@ class ApiService {
     }
     throw const ApiException(
       'El backend respondió pero no incluyó texto transcrito.',
+    );
+  }
+
+  /// Modelos de Gemini disponibles para la clave, del más rápido/estable al resto.
+  static const List<String> _modelosGemini = [
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-flash-latest',
+  ];
+
+  /// Tiempo máximo por modelo; si uno se cuelga se pasa rápido al siguiente.
+  static const Duration _timeoutPorModelo = Duration(seconds: 35);
+
+  static const String _promptTranscripcion =
+      'Actúa como un paleógrafo y archivista experto en transcripción de libros '
+      'y documentos históricos. Transcribe con la mayor fidelidad posible todo el '
+      'texto visible en esta imagen.\n'
+      'Reglas:\n'
+      '1. Respeta nombres propios, fechas, abreviaturas y ortografía histórica.\n'
+      '2. Conserva tildes, diéresis, puntuación, ñ y Ñ.\n'
+      '3. Escribe el texto de forma continua; conserva solo los cambios reales de párrafo.\n'
+      '4. Si una palabra se corta con guion al final del renglón, únela sin guion.\n'
+      '5. Marca las partes ilegibles como [ilegible].\n'
+      '6. Devuelve ÚNICAMENTE el texto transcrito, sin introducciones ni bloques de código.';
+
+  static Future<String> _transcribirDirectoConGemini(
+    String base64Image,
+    String mimeType,
+    String apiKey,
+  ) async {
+    final cuerpo = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {'text': _promptTranscripcion},
+            {
+              'inline_data': {'mime_type': mimeType, 'data': base64Image},
+            },
+          ],
+        },
+      ],
+      'generationConfig': {'temperature': 0.1, 'topP': 0.95},
+    });
+
+    String ultimoError = 'sin respuesta';
+    for (final modelo in _modelosGemini) {
+      final uri = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/'
+        '$modelo:generateContent?key=$apiKey',
+      );
+      try {
+        final res = await http
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: cuerpo,
+            )
+            .timeout(_timeoutPorModelo);
+
+        if (res.statusCode == 200) {
+          final data = jsonDecode(utf8.decode(res.bodyBytes));
+          final partes = data['candidates']?[0]?['content']?['parts'];
+          if (partes is List) {
+            final texto = partes
+                .map((p) => (p is Map ? p['text'] : null) ?? '')
+                .join()
+                .trim();
+            if (texto.isNotEmpty) return texto;
+          }
+          ultimoError = '$modelo respondió sin texto';
+          continue;
+        }
+
+        String msg = res.body;
+        try {
+          msg = jsonDecode(res.body)['error']?['message']?.toString() ?? msg;
+        } catch (_) {}
+        ultimoError = '$modelo (${res.statusCode}): $msg';
+        debugPrint('Gemini: $ultimoError');
+
+        // Clave inválida o petición mal formada: no tiene caso probar otros modelos.
+        if (res.statusCode == 400 || res.statusCode == 401 || res.statusCode == 403) {
+          throw ApiException('Gemini rechazó la petición: $msg');
+        }
+      } on TimeoutException {
+        ultimoError = '$modelo tardó más de ${_timeoutPorModelo.inSeconds} s';
+        debugPrint('Gemini: $ultimoError');
+      } on SocketException catch (e) {
+        throw ApiException(
+          'Sin conexión a internet para transcribir con Gemini: ${e.message}',
+        );
+      }
+    }
+
+    throw ApiException(
+      'Gemini no pudo transcribir la página (servicio saturado). '
+      'Intenta de nuevo en unos segundos.\nDetalle: $ultimoError',
     );
   }
 

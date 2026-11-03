@@ -45,9 +45,15 @@ class _ScanScreenState extends State<ScanScreen> {
   bool _procesando = false;
   bool _saliendo = false;
   bool _mostrarGuia = true;
-  bool _dobleFolio = true;
-  int _filtroActivo = 1; // 0: Color Real, 1: Pergamino Cálido, 2: B/N Texto Puro
-  String _mensaje = 'Digitalizando y transcribiendo folio...';
+  int _filtroActivo = 0; // 0: Color Real, 1: B/N Texto Puro
+  String _mensaje = 'Digitalizando y transcribiendo página...';
+
+  FlashMode _flashMode = FlashMode.off;
+  double _zoomActual = 1.0;
+  double _maxZoom = 1.0;
+  double _minZoom = 1.0;
+  Offset? _focusOffset;
+  bool _mostrarFocoIndicador = false;
 
   @override
   void initState() {
@@ -69,12 +75,36 @@ class _ScanScreenState extends State<ScanScreen> {
         }
         return;
       }
-      final controller = CameraController(
+
+      // Priorizar veryHigh (1080p) para nitidez en letras pequeñas y bordes
+      CameraController controller = CameraController(
         camaras.first,
-        ResolutionPreset.high,
+        ResolutionPreset.veryHigh,
         enableAudio: false,
       );
-      await controller.initialize();
+      try {
+        await controller.initialize();
+      } catch (_) {
+        // Fallback a high si el dispositivo no soporta veryHigh
+        controller = CameraController(
+          camaras.first,
+          ResolutionPreset.high,
+          enableAudio: false,
+        );
+        await controller.initialize();
+      }
+
+      // Habilitar autoenfoque continuo si está disponible
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+
+      // Leer niveles de zoom soportados
+      try {
+        _minZoom = await controller.getMinZoomLevel();
+        _maxZoom = await controller.getMaxZoomLevel();
+      } catch (_) {}
+
       if (!mounted) {
         await controller.dispose();
         return;
@@ -84,6 +114,60 @@ class _ScanScreenState extends State<ScanScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al inicializar la cámara: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _enfocarEnPunto(TapDownDetails details, CameraController camara) async {
+    if (!camara.value.isInitialized) return;
+
+    final RenderBox? box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final size = box.size;
+    final offset = details.localPosition;
+
+    final double x = (offset.dx / size.width).clamp(0.0, 1.0);
+    final double y = (offset.dy / size.height).clamp(0.0, 1.0);
+
+    setState(() {
+      _focusOffset = offset;
+      _mostrarFocoIndicador = true;
+    });
+
+    try {
+      await camara.setFocusPoint(Offset(x, y));
+      await camara.setExposurePoint(Offset(x, y));
+    } catch (_) {}
+
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _mostrarFocoIndicador = false);
+    });
+  }
+
+  Future<void> _alternarZoom() async {
+    final camara = _camara;
+    if (camara == null || !camara.value.isInitialized) return;
+    final double objetivo = _zoomActual <= 1.2
+        ? (2.0 <= _maxZoom ? 2.0 : _maxZoom)
+        : _minZoom;
+    try {
+      await camara.setZoomLevel(objetivo);
+      setState(() => _zoomActual = objetivo);
+    } catch (_) {}
+  }
+
+  Future<void> _alternarFlash() async {
+    final camara = _camara;
+    if (camara == null || !camara.value.isInitialized) return;
+    final nuevo = _flashMode == FlashMode.torch ? FlashMode.off : FlashMode.torch;
+    try {
+      await camara.setFlashMode(nuevo);
+      setState(() => _flashMode = nuevo);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Linterna no disponible en este dispositivo')),
         );
       }
     }
@@ -102,8 +186,7 @@ class _ScanScreenState extends State<ScanScreen> {
     try {
       final resultado = await _ocr.procesarImagenDetallado(ruta);
       final texto = (resultado['texto'] as String? ?? '').trim();
-      final motor = resultado['motor'] as String? ?? 'OCR';
-      final falloGemini = resultado['falloGemini'] as String?;
+      final motor = resultado['motor'] as String? ?? 'Gemini AI';
 
       final numero = _paginas.length + 1;
       final palabras = texto.isEmpty
@@ -123,14 +206,12 @@ class _ScanScreenState extends State<ScanScreen> {
         );
       });
 
-      if (falloGemini != null) _avisarFalloGemini(falloGemini);
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             texto.isEmpty
-                ? 'Folio $numero sin texto legible · $motor'
-                : 'Folio $numero · $palabras palabras · $motor',
+                ? 'Página $numero sin texto legible · $motor'
+                : 'Página $numero · $palabras palabras · $motor',
           ),
           duration: const Duration(seconds: 3),
         ),
@@ -138,7 +219,11 @@ class _ScanScreenState extends State<ScanScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al procesar el folio: $e')),
+          SnackBar(
+            backgroundColor: Colors.red.shade900,
+            content: Text('Error al transcribir con Gemini: $e'),
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     } finally {
@@ -154,42 +239,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  void _avisarFalloGemini(String motivo) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 8),
-        backgroundColor: Colors.amber.shade900,
-        content: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.warning_amber, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Se usó ML Kit local',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    motivo,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _capturar() async {
     final camara = _camara;
     if (camara == null || !camara.value.isInitialized || _procesando) return;
@@ -197,7 +246,7 @@ class _ScanScreenState extends State<ScanScreen> {
       final XFile foto = await camara.takePicture();
       await _procesarImagen(
         foto.path,
-        'Digitalizando y transcribiendo folio...',
+        'Digitalizando y transcribiendo página...',
         eliminarImagenAlFinal: true,
       );
     } catch (e) {
@@ -208,6 +257,8 @@ class _ScanScreenState extends State<ScanScreen> {
       }
     }
   }
+
+
 
   Future<void> _importarDeGaleria() async {
     if (_procesando) return;
@@ -265,37 +316,6 @@ class _ScanScreenState extends State<ScanScreen> {
     } else {
       setState(() => _saliendo = false);
     }
-  }
-
-  void _mostrarInfoTranscripcion() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.auto_fix_high_rounded, color: Color(0xFF8C4E26)),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Sensor Óptico y Transcripción',
-                style: TextStyle(fontFamily: 'Literata', fontSize: 17),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Cada captura se envía de forma segura al backend para transcribirla '
-          'con Gemini AI respetando signos clásicos y párrafos. Si no hay red '
-          'disponible, se procesa localmente mediante ML Kit.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Entendido'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -361,17 +381,8 @@ class _ScanScreenState extends State<ScanScreen> {
       ),
     );
 
-    // Aplicar matiz visual según el filtro seleccionado en la barra inferior
+    // Aplicar matiz visual si está activo el filtro B/N Texto Puro
     if (_filtroActivo == 1) {
-      // Pergamino Cálido
-      preview = ColorFiltered(
-        colorFilter: ColorFilter.mode(
-          const Color(0xFFD4A373).withValues(alpha: 0.14),
-          BlendMode.softLight,
-        ),
-        child: preview,
-      );
-    } else if (_filtroActivo == 2) {
       // B/N Texto Puro
       preview = ColorFiltered(
         colorFilter: const ColorFilter.matrix(<double>[
@@ -384,7 +395,50 @@ class _ScanScreenState extends State<ScanScreen> {
       );
     }
 
-    return preview;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (details) => _enfocarEnPunto(details, camara),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          preview,
+          if (_mostrarFocoIndicador && _focusOffset != null)
+            Positioned(
+              left: _focusOffset!.dx - 28,
+              top: _focusOffset!.dy - 28,
+              child: IgnorePointer(
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFFD4A373),
+                      width: 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFD4A373),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _buildFallbackViewport(bool hayControlador) {
@@ -537,22 +591,37 @@ class _ScanScreenState extends State<ScanScreen> {
           ),
           const SizedBox(width: 10),
 
-          // Controles de Sensor Derecha (Guía & Info Curvatura/OCR)
+          // Controles de Sensor Derecha (Linterna, Zoom, Guía & Info)
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _topCircleButton(
+                icon: _flashMode == FlashMode.torch
+                    ? Icons.flashlight_on_rounded
+                    : Icons.flashlight_off_rounded,
+                active: _flashMode == FlashMode.torch,
+                tooltip: _flashMode == FlashMode.torch
+                    ? 'Apagar linterna'
+                    : 'Encender linterna',
+                onTap: _alternarFlash,
+              ),
+              const SizedBox(width: 6),
+              _topCircleButton(
+                icon: _zoomActual > 1.2
+                    ? Icons.zoom_out_rounded
+                    : Icons.zoom_in_rounded,
+                active: _zoomActual > 1.2,
+                tooltip: _zoomActual > 1.2
+                    ? 'Zoom 2x activo (tocar para 1x)'
+                    : 'Zoom 1x (tocar para 2x en texto pequeño)',
+                onTap: _alternarZoom,
+              ),
+              const SizedBox(width: 6),
               _topCircleButton(
                 icon: Icons.crop_free_rounded,
                 active: _mostrarGuia,
                 tooltip: _mostrarGuia ? 'Ocultar retícula' : 'Mostrar retícula',
                 onTap: () => setState(() => _mostrarGuia = !_mostrarGuia),
-              ),
-              const SizedBox(width: 8),
-              _topCircleButton(
-                icon: Icons.auto_fix_high_rounded,
-                active: true,
-                tooltip: 'Información de corrección y OCR',
-                onTap: _mostrarInfoTranscripcion,
               ),
             ],
           ),
@@ -597,18 +666,15 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Widget _buildOpticalAlignmentHud() {
-    final numIzq = (_paginas.length * 2) + 1;
-    final numDer = numIzq + 1;
-
     return IgnorePointer(
       ignoring: false,
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.only(
-            top: 68,
-            bottom: 188,
-            left: 20,
-            right: 20,
+            top: 56,
+            bottom: 150,
+            left: 14,
+            right: 14,
           ),
           child: Column(
             children: [
@@ -638,7 +704,7 @@ class _ScanScreenState extends State<ScanScreen> {
                     ),
                     const SizedBox(width: 8),
                     const Text(
-                      'Páginas detectadas • Calibración 100%',
+                      'Página detectada • Calibración 100%',
                       style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
@@ -649,131 +715,41 @@ class _ScanScreenState extends State<ScanScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
-              // Marco central con cruces de latón en las 4 esquinas y eje de lomo
+              // Marco central con cruces de latón en las 4 esquinas estirado para página simple
               Expanded(
                 child: IgnorePointer(
                   child: CustomPaint(
-                    painter: _StitchReticlePainter(dobleFolio: _dobleFolio),
+                    painter: _StitchReticlePainter(),
                     child: Stack(
                       children: [
-                        if (_dobleFolio) ...[
-                          // Etiqueta Folio Verso (Izquierda)
-                          Positioned(
-                            top: 12,
-                            left: 14,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'FOLIO VERSO',
-                                  style: TextStyle(
-                                    fontFamily: 'Newsreader',
-                                    fontStyle: FontStyle.italic,
-                                    fontSize: 10,
-                                    color: const Color(0xFFD4A373)
-                                        .withValues(alpha: 0.9),
-                                  ),
-                                ),
-                                Text(
-                                  'Pág. $numIzq',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFFCF9F4),
-                                  ),
-                                ),
-                              ],
+                        Positioned(
+                          top: 14,
+                          left: 16,
+                          child: Text(
+                            'PÁGINA ${_paginas.length + 1}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.1,
+                              color: Color(0xFFD4A373),
                             ),
                           ),
-                          // Etiqueta Folio Recto (Derecha)
-                          Positioned(
-                            top: 12,
-                            right: 14,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  'FOLIO RECTO',
-                                  style: TextStyle(
-                                    fontFamily: 'Newsreader',
-                                    fontStyle: FontStyle.italic,
-                                    fontSize: 10,
-                                    color: const Color(0xFFD4A373)
-                                        .withValues(alpha: 0.9),
-                                  ),
-                                ),
-                                Text(
-                                  'Pág. $numDer',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFFCF9F4),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Píldora central de Eje del Lomo
-                          Align(
-                            alignment: Alignment.topCenter,
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2C1810)
-                                      .withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: const Color(0xFFD4A373)
-                                        .withValues(alpha: 0.45),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'EJE DEL LOMO',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
-                                    color: Color(0xFFD4A373),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ] else ...[
-                          Positioned(
-                            top: 12,
-                            left: 14,
-                            child: Text(
-                              'FOLIO INDIVIDUAL • PÁG. ${_paginas.length + 1}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.1,
-                                color: Color(0xFFD4A373),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
 
                         // Indicadores inferiores de nitidez dentro del marco
                         Positioned(
-                          bottom: 10,
-                          left: 14,
+                          bottom: 12,
+                          left: 16,
                           child: _hudMicroBadge(
                             Icons.straighten_rounded,
                             'Texto nítido',
                           ),
                         ),
                         Positioned(
-                          bottom: 10,
-                          right: 14,
+                          bottom: 12,
+                          right: 16,
                           child: _hudMicroBadge(
                             Icons.verified_outlined,
                             'Borde recto',
@@ -782,37 +758,6 @@ class _ScanScreenState extends State<ScanScreen> {
                       ],
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Selector segmentado: Página Simple | Doble Folio (2x)
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C1810).withValues(alpha: 0.88),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: const Color(0xFFFCF9F4).withValues(alpha: 0.14),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _modePillButton(
-                      icon: Icons.description_outlined,
-                      label: 'Página Simple',
-                      selected: !_dobleFolio,
-                      onTap: () => setState(() => _dobleFolio = false),
-                    ),
-                    const SizedBox(width: 4),
-                    _modePillButton(
-                      icon: Icons.menu_book_rounded,
-                      label: 'Doble Folio (2x)',
-                      selected: _dobleFolio,
-                      onTap: () => setState(() => _dobleFolio = true),
-                    ),
-                  ],
                 ),
               ),
             ],
@@ -842,48 +787,6 @@ class _ScanScreenState extends State<ScanScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _modePillButton({
-    required IconData icon,
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF8C4E26) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: selected
-                  ? const Color(0xFFFCF9F4)
-                  : const Color(0xFFEDE7DF).withValues(alpha: 0.7),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
-                color: selected
-                    ? const Color(0xFFFCF9F4)
-                    : const Color(0xFFEDE7DF).withValues(alpha: 0.7),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -924,12 +827,6 @@ class _ScanScreenState extends State<ScanScreen> {
                 const SizedBox(width: 8),
                 _filterChip(
                   index: 1,
-                  label: 'Pergamino Cálido',
-                  dotColor: const Color(0xFFF5EBD6),
-                ),
-                const SizedBox(width: 8),
-                _filterChip(
-                  index: 2,
                   label: 'B/N Texto Puro',
                   dotColor: Colors.white,
                 ),
@@ -1306,9 +1203,7 @@ class _ScanScreenState extends State<ScanScreen> {
 }
 
 class _StitchReticlePainter extends CustomPainter {
-  final bool dobleFolio;
-
-  _StitchReticlePainter({required this.dobleFolio});
+  const _StitchReticlePainter();
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1375,24 +1270,6 @@ class _StitchReticlePainter extends CustomPainter {
       cornerPaint,
     );
 
-    // Eje central de pliego (si Doble Folio está activo)
-    if (dobleFolio) {
-      final centerX = size.width / 2;
-      final dashPaint = Paint()
-        ..color = const Color(0xFFD4A373).withValues(alpha: 0.55)
-        ..strokeWidth = 1.2;
-
-      double y = 32;
-      while (y < size.height - 20) {
-        canvas.drawLine(
-          Offset(centerX, y),
-          Offset(centerX, y + 6),
-          dashPaint,
-        );
-        y += 12;
-      }
-    }
-
     // Línea horizontal de barrido óptico
     final scanY = size.height * 0.52;
     final scanPaint = Paint()
@@ -1412,6 +1289,5 @@ class _StitchReticlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _StitchReticlePainter oldDelegate) =>
-      oldDelegate.dobleFolio != dobleFolio;
+  bool shouldRepaint(covariant _StitchReticlePainter oldDelegate) => false;
 }

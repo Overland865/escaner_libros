@@ -6,7 +6,6 @@ import '../services/api_service.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/library_tab.dart';
 import 'tabs/scan_tab.dart';
-import 'tabs/upload_pdf_tab.dart';
 import 'widgets/login_screen.dart';
 
 class AuthGate extends StatefulWidget {
@@ -80,7 +79,7 @@ class _AppShellState extends State<_AppShell> {
   late final BibliotecaController _biblioteca;
   int _indice = 0;
 
-  static const _titulos = ['Inicio', 'Subir PDF', 'Mi Biblioteca'];
+  static const _titulos = ['Inicio', 'Mi Biblioteca'];
 
   @override
   void initState() {
@@ -96,7 +95,7 @@ class _AppShellState extends State<_AppShell> {
 
   void _irA(int indice) => setState(() => _indice = indice);
 
-  void _irALibros() => _irA(2);
+  void _irALibros() => _irA(1);
 
   void _abrirEscaneo() {
     ScanBookScreen.abrir(
@@ -187,9 +186,7 @@ class _AppShellState extends State<_AppShell> {
             biblioteca: _biblioteca,
             onEscanear: _abrirEscaneo,
             onVerLibros: _irALibros,
-            onSubirPdf: () => _irA(1),
           ),
-          UploadPdfTab(biblioteca: _biblioteca, onGuardado: _irALibros),
           LibraryTab(biblioteca: _biblioteca),
         ],
       ),
@@ -219,11 +216,6 @@ class _AppShellState extends State<_AppShell> {
               icon: const Icon(Icons.local_library_outlined),
               selectedIcon: Icon(Icons.local_library_rounded, color: theme.colorScheme.secondary),
               label: 'Inicio',
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-              selectedIcon: Icon(Icons.picture_as_pdf_rounded, color: theme.colorScheme.secondary),
-              label: 'Subir PDF',
             ),
             NavigationDestination(
               icon: const Icon(Icons.auto_stories_outlined),

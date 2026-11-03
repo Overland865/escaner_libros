@@ -21,14 +21,12 @@ class HomeTab extends StatefulWidget {
   final BibliotecaController biblioteca;
   final VoidCallback? onEscanear;
   final VoidCallback onVerLibros;
-  final VoidCallback? onSubirPdf;
 
   const HomeTab({
     super.key,
     required this.biblioteca,
     this.onEscanear,
     required this.onVerLibros,
-    this.onSubirPdf,
   });
 
   @override
@@ -261,10 +259,10 @@ class _HomeTabState extends State<HomeTab> {
               _BuscadorPergamino(onTap: widget.onVerLibros),
               const SizedBox(height: 16),
 
-              // 3. Tarjetas de Acciones Rápidas (Escanear y Subir PDF)
+              // 3. Tarjetas de Acciones Rápidas (Escanear y Mi Biblioteca)
               _AccionesRapidasGrid(
                 onEscanear: widget.onEscanear,
-                onSubirPdf: widget.onSubirPdf ?? widget.onVerLibros,
+                onVerBiblioteca: widget.onVerLibros,
               ),
               const SizedBox(height: 16),
 
@@ -417,11 +415,11 @@ class _BuscadorPergamino extends StatelessWidget {
 /// 3. Acciones rápidas (Binding Embossed Style)
 class _AccionesRapidasGrid extends StatelessWidget {
   final VoidCallback? onEscanear;
-  final VoidCallback onSubirPdf;
+  final VoidCallback onVerBiblioteca;
 
   const _AccionesRapidasGrid({
     this.onEscanear,
-    required this.onSubirPdf,
+    required this.onVerBiblioteca,
   });
 
   @override
@@ -503,12 +501,12 @@ class _AccionesRapidasGrid extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        // Tarjeta Subir PDF
+        // Tarjeta Biblioteca
         Expanded(
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: onSubirPdf,
+              onTap: onVerBiblioteca,
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 padding: const EdgeInsets.all(14),
@@ -537,7 +535,7 @@ class _AccionesRapidasGrid extends StatelessWidget {
                         ),
                       ),
                       child: Icon(
-                        Icons.upload_file_rounded,
+                        Icons.auto_stories_rounded,
                         color: theme.colorScheme.secondary,
                         size: 22,
                       ),
@@ -549,7 +547,7 @@ class _AccionesRapidasGrid extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'Subir PDF',
+                            'Biblioteca',
                             style: TextStyle(
                               fontFamily: 'Literata',
                               fontSize: 15,
@@ -559,7 +557,7 @@ class _AccionesRapidasGrid extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'EPUB o archivo',
+                            'Ver catálogo',
                             style: TextStyle(
                               fontSize: 11,
                               color: theme.colorScheme.onSurfaceVariant,
@@ -997,24 +995,29 @@ class _SeccionContinuarLectura extends StatelessWidget {
                         onPressed: onReanudar,
                         style: FilledButton.styleFrom(
                           backgroundColor: isDark
-                              ? theme.colorScheme.secondary
-                              : theme.colorScheme.primary,
+                              ? const Color(0xFFD4A373)
+                              : const Color(0xFF8C4E26),
                           foregroundColor: isDark
-                              ? theme.colorScheme.onSecondary
-                              : theme.colorScheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                              ? const Color(0xFF1C1C19)
+                              : Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
                           elevation: 2,
                         ),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        icon: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 18,
+                          color: isDark ? const Color(0xFF1C1C19) : Colors.white,
+                        ),
                         label: Text(
                           porcentajeEntero > 0 ? 'REANUDAR' : 'LEER AHORA',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.5,
+                            color: isDark ? const Color(0xFF1C1C19) : Colors.white,
                           ),
                         ),
                       ),
@@ -1381,7 +1384,7 @@ class _EstadoVacio extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Digitaliza un tomo físico con la cámara o importa un archivo PDF.',
+              'Digitaliza un tomo físico con la cámara para comenzar tu colección.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12.5,
