@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/libro_model.dart';
+import '../../services/local_user_preferences_store.dart';
 import '../book_detail_screen.dart';
 
 class BookCard extends StatelessWidget {
@@ -328,6 +329,275 @@ class BookCard extends StatelessWidget {
                         ),
                       ),
                   ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta visual de libro para cuadrícula de 2 columnas con portada editorial y lomo.
+class GridBookCard extends StatelessWidget {
+  final LibroModel libro;
+  final bool pendiente;
+  final String? errorSync;
+  final bool esFavorito;
+  final ProgresoLectura? progreso;
+  final VoidCallback? onRetorno;
+  final VoidCallback? onTap;
+
+  const GridBookCard({
+    super.key,
+    required this.libro,
+    this.pendiente = false,
+    this.errorSync,
+    this.esFavorito = false,
+    this.progreso,
+    this.onRetorno,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final tipo = libro.tipoLibro.toLowerCase();
+    final gradientColors = tipo.contains('historia')
+        ? const [Color(0xFF5A2525), Color(0xFF7E3838)]
+        : tipo.contains('ficci') || tipo.contains('novela')
+            ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)]
+            : tipo.contains('pdf')
+                ? const [Color(0xFF1B3B4B), Color(0xFF2C5E78)]
+                : const [Color(0xFF2C1810), Color(0xFF4A2A1E)];
+
+    final porcentaje = progreso?.porcentaje ?? 0.0;
+    final porcentajeEntero = (porcentaje * 100).round();
+    final esCompletado = porcentaje >= 1.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: pendiente
+              ? Colors.amber.shade700.withValues(alpha: 0.5)
+              : theme.colorScheme.outlineVariant,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap ?? () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BookDetailScreen(
+                  idLibro: libro.id,
+                  titulo: libro.titulo,
+                  libroLocal: pendiente ? libro : null,
+                  errorSync: errorSync,
+                ),
+              ),
+            );
+            onRetorno?.call();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Portada de libro con aspecto editorial y lomo
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: gradientColors,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.black.withValues(alpha: 0.18),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
+                          blurRadius: 6,
+                          offset: const Offset(1, 3),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        // Franja de efecto de lomo a la izquierda
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          width: 6,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(8),
+                                bottomLeft: Radius.circular(8),
+                              ),
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.45),
+                                  Colors.white.withValues(alpha: 0.15),
+                                  Colors.black.withValues(alpha: 0.25),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        // Contenido de la portada
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.65),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        tipo.contains('pdf')
+                                            ? 'PDF'
+                                            : libro.tipoLibro.replaceFirst(RegExp(r'^Category:\s*', caseSensitive: false), ''),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFFCF9F4),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (esFavorito) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.star_rounded,
+                                      color: Color(0xFFD4A373),
+                                      size: 16,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const Spacer(),
+                              Text(
+                                libro.titulo,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'Literata',
+                                  color: Color(0xFFFCF9F4),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10.5,
+                                  height: 1.15,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                libro.autor,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'Newsreader',
+                                  color: const Color(0xFFFCF9F4).withValues(alpha: 0.8),
+                                  fontSize: 9,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Metadatos fuera de la portada
+                Text(
+                  libro.titulo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Literata',
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12.5,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  libro.autor.isEmpty ? 'Autor no especificado' : libro.autor,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Newsreader',
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                // Medidor de progreso dorado
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      esCompletado
+                          ? 'Completado'
+                          : porcentajeEntero > 0
+                              ? 'Leído'
+                              : '${libro.anioInicio}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    Text(
+                      esCompletado
+                          ? '100%'
+                          : porcentajeEntero > 0
+                              ? '$porcentajeEntero%'
+                              : '${libro.paginas.length} pág.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: porcentajeEntero > 0 ? porcentaje : 0.0,
+                    minHeight: 3,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.secondary),
+                  ),
                 ),
               ],
             ),

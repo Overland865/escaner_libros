@@ -46,6 +46,7 @@ class BibliotecaController extends ChangeNotifier {
   int _totalRemoto = 0;
   bool _hayMas = false;
   bool _cargandoMas = false;
+  int _paginaActual = 1;
 
   List<LibroModel> get libros => _libros;
   EstadoCarga get estado => _estado;
@@ -77,6 +78,11 @@ class BibliotecaController extends ChangeNotifier {
   int get totalRemoto => _totalRemoto;
   bool get hayMas => _hayMas;
   bool get cargandoMas => _cargandoMas;
+  int get paginaActual => _paginaActual;
+  int get totalPaginas => (_totalRemoto <= 0) ? 1 : ((_totalRemoto - 1) ~/ _tamanoPagina) + 1;
+  int get tamanoPagina => _tamanoPagina;
+  bool get tienePaginaAnterior => _paginaActual > 1;
+  bool get tienePaginaSiguiente => _paginaActual < totalPaginas;
 
   /// Estado de sync local para un id, o null si solo existe en remoto.
   EstadoSync? estadoLocalDe(String id) => _estadosLocales[id];
@@ -107,6 +113,7 @@ class BibliotecaController extends ChangeNotifier {
     _error = null;
     _modoDegradado = false;
     _skip = 0;
+    _paginaActual = 1;
     _hayMas = false;
     notifyListeners();
 
@@ -169,6 +176,66 @@ class BibliotecaController extends ChangeNotifier {
     if (remotoOk && _pendientesCount > 0) {
       await sincronizarAhora(silencioso: true);
     }
+  }
+
+  /// Salta directamente a una página específica del catálogo.
+  Future<void> irAPagina(int pagina) async {
+    if (pagina < 1) pagina = 1;
+    if (_totalRemoto > 0 && pagina > totalPaginas) pagina = totalPaginas;
+    if (_cargandoMas || _estado == EstadoCarga.cargando) return;
+
+    _paginaActual = pagina;
+    _estado = EstadoCarga.cargando;
+    _error = null;
+    notifyListeners();
+
+    final skip = (pagina - 1) * _tamanoPagina;
+    var remotoOk = false;
+
+    try {
+      final res = await ApiService.obtenerLibrosPaginados(
+        busqueda: _busqueda.isEmpty ? null : _busqueda,
+        campoBusqueda: _campoBusqueda,
+        limit: _tamanoPagina,
+        skip: skip,
+      );
+      _remotos = List.of(res.libros);
+      _totalRemoto = res.total;
+      _skip = skip + res.libros.length;
+      _hayMas = res.hasMore;
+      _servidorAlcanzable = true;
+      _errorEsConexion = false;
+      _error = null;
+      remotoOk = true;
+    } catch (e) {
+      _error = e.toString();
+      _errorEsConexion = e is ApiException && e.esErrorDeConexion;
+      _servidorAlcanzable = !_errorEsConexion;
+    }
+
+    final locales = await _store.listarPendientes();
+    _pendientesCount = locales.length;
+    _estadosLocales
+      ..clear()
+      ..addEntries(locales.map((l) => MapEntry(l.id, l.estado)));
+    _librosLocales
+      ..clear()
+      ..addEntries(locales.map((l) => MapEntry(l.id, l)));
+
+    _libros = _mezclar(
+      _remotos,
+      locales,
+      filtro: _busqueda,
+      campo: _campoBusqueda,
+    );
+
+    if (remotoOk || _libros.isNotEmpty) {
+      _estado = EstadoCarga.listo;
+    } else {
+      _estado = EstadoCarga.error;
+    }
+
+    notifyListeners();
   }
 
   /// Solicita la siguiente página de libros para carga incremental (scroll infinito).

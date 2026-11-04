@@ -7,6 +7,7 @@ import '../../services/local_user_preferences_store.dart';
 import '../book_detail_screen.dart';
 import '../reading_mode_screen.dart';
 import '../widgets/backend_connection_sheet.dart';
+import '../widgets/book_card.dart';
 
 /// Pestaña 1 — Inicio con la estética editorial clásica modelada en Google Stitch.
 ///
@@ -285,26 +286,14 @@ class _HomeTabState extends State<HomeTab> {
                 const SizedBox(height: 24),
               ],
 
-              // 6. Carrusel horizontal: "Libros Recientes / En tu estantería"
+              // 6. Cuadrícula de libros: "Libros Recientes / En tu estantería"
               if (libros.isNotEmpty) ...[
-                _CarruselEstanteria(
+                _CuadriculaEstanteria(
+                  biblioteca: b,
                   libros: libros,
                   progresos: _progresos,
                   onVerTodos: widget.onVerLibros,
-                  onSeleccionarLibro: (l) async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BookDetailScreen(
-                          idLibro: l.id,
-                          titulo: l.titulo,
-                          libroLocal: b.esPendiente(l.id) ? l : null,
-                          errorSync: b.errorSyncDe(l.id),
-                        ),
-                      ),
-                    );
-                    _cargarProgresos();
-                  },
+                  onRetorno: _cargarProgresos,
                 ),
                 const SizedBox(height: 22),
               ] else if (b.estado == EstadoCarga.cargando) ...[
@@ -1066,23 +1055,28 @@ class _SeccionContinuarLectura extends StatelessWidget {
   }
 }
 
-/// 6. Carrusel horizontal: "En tu estantería / Libros Recientes"
-class _CarruselEstanteria extends StatelessWidget {
+/// 6. Cuadrícula de libros: "En tu estantería / Libros Recientes"
+class _CuadriculaEstanteria extends StatelessWidget {
+  final BibliotecaController biblioteca;
   final List<LibroModel> libros;
   final Map<String, ProgresoLectura> progresos;
   final VoidCallback onVerTodos;
-  final ValueChanged<LibroModel> onSeleccionarLibro;
+  final VoidCallback onRetorno;
 
-  const _CarruselEstanteria({
+  const _CuadriculaEstanteria({
+    required this.biblioteca,
     required this.libros,
     required this.progresos,
     required this.onVerTodos,
-    required this.onSeleccionarLibro,
+    required this.onRetorno,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final totalVolumenes = biblioteca.totalRemoto > 0 ? biblioteca.totalRemoto : libros.length;
+    // Mostramos hasta 8 libros en el inicio para formar una cuadrícula sólida y balanceada de 2 columnas
+    final librosAMostrar = libros.length > 8 ? libros.take(8).toList() : libros;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1110,7 +1104,7 @@ class _CarruselEstanteria extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${libros.length} vol.',
+                    '$totalVolumenes vol.',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -1120,224 +1114,60 @@ class _CarruselEstanteria extends StatelessWidget {
                 ),
               ],
             ),
-            TextButton(
+            TextButton.icon(
               onPressed: onVerTodos,
               style: TextButton.styleFrom(
                 foregroundColor: theme.colorScheme.secondary,
                 visualDensity: VisualDensity.compact,
               ),
-              child: const Text('Ver todos'),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: const Text('Ver todos'),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 220,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            itemCount: libros.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final l = libros[index];
-              final prog = progresos[l.id];
-              return _LibroEstanteriaItem(
-                libro: l,
-                progreso: prog,
-                onTap: () => onSeleccionarLibro(l),
-              );
-            },
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.58,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 16,
           ),
+          itemCount: librosAMostrar.length,
+          itemBuilder: (context, index) {
+            final l = librosAMostrar[index];
+            final prog = progresos[l.id];
+            return GridBookCard(
+              libro: l,
+              pendiente: biblioteca.esPendiente(l.id),
+              errorSync: biblioteca.errorSyncDe(l.id),
+              esFavorito: false,
+              progreso: prog,
+              onRetorno: onRetorno,
+            );
+          },
         ),
+        if (totalVolumenes > librosAMostrar.length) ...[
+          const SizedBox(height: 16),
+          Center(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.secondary,
+                side: BorderSide(
+                  color: theme.colorScheme.secondary.withValues(alpha: 0.5),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: onVerTodos,
+              icon: const Icon(Icons.auto_stories_rounded, size: 18),
+              label: Text('Ver catálogo completo en Biblioteca ($totalVolumenes vol.) →'),
+            ),
+          ),
+        ],
       ],
-    );
-  }
-}
-
-/// Elemento de libro individual en la estantería horizontal
-class _LibroEstanteriaItem extends StatelessWidget {
-  final LibroModel libro;
-  final ProgresoLectura? progreso;
-  final VoidCallback onTap;
-
-  const _LibroEstanteriaItem({
-    required this.libro,
-    this.progreso,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    final tipo = libro.tipoLibro.toLowerCase();
-    final gradientColors = tipo.contains('historia')
-        ? const [Color(0xFF5A2525), Color(0xFF7E3838)]
-        : tipo.contains('ficci') || tipo.contains('novela')
-            ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)]
-            : tipo.contains('pdf')
-                ? const [Color(0xFF1B3B4B), Color(0xFF2C5E78)]
-                : const [Color(0xFF2C1810), Color(0xFF4A2A1E)];
-
-    final porcentaje = progreso?.porcentaje ?? 0.0;
-    final porcentajeEntero = (porcentaje * 100).round();
-    final esCompletado = porcentaje >= 1.0;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: 130,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Portada vertical de libro
-              Container(
-                width: 130,
-                height: 160,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: gradientColors,
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.black.withValues(alpha: 0.2),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
-                      blurRadius: 8,
-                      offset: const Offset(2, 4),
-                    ),
-                  ],
-                ),
-                child: Stack(
-                  children: [
-                    // Efecto de lomo a la izquierda
-                    Positioned(
-                      top: 0,
-                      bottom: 0,
-                      left: 0,
-                      width: 6,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(8),
-                            bottomLeft: Radius.circular(8),
-                          ),
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.black.withValues(alpha: 0.45),
-                              Colors.white.withValues(alpha: 0.15),
-                              Colors.black.withValues(alpha: 0.25),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // Título y contenido de portada
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Badge de estado o formato
-                          Align(
-                            alignment: Alignment.topRight,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.65),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                esCompletado
-                                    ? 'Leído'
-                                    : porcentajeEntero > 0
-                                        ? '$porcentajeEntero%'
-                                        : (libro.tipoLibro.toLowerCase().contains('pdf') ? 'PDF' : 'Libro'),
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: esCompletado ? const Color(0xFF90BE6D) : const Color(0xFFFCF9F4),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            libro.titulo,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'Literata',
-                              color: Color(0xFFFCF9F4),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            libro.autor,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: const Color(0xFFFCF9F4).withValues(alpha: 0.75),
-                              fontSize: 9.5,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              // Título debajo de la portada
-              Text(
-                libro.titulo,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: 'Literata',
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-              Text(
-                libro.autor.isNotEmpty ? libro.autor : 'Desconocido',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              if (porcentajeEntero > 0) ...[
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: porcentaje,
-                    minHeight: 3,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.secondary),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

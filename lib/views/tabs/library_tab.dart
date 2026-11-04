@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../controllers/biblioteca_controller.dart';
 import '../../models/libro_model.dart';
 import '../../services/local_user_preferences_store.dart';
-import '../book_detail_screen.dart';
 import '../widgets/backend_connection_sheet.dart';
 import '../widgets/book_card.dart';
 
@@ -47,7 +46,6 @@ class _LibraryTabState extends State<LibraryTab> {
     super.initState();
     _searchController.text = widget.biblioteca.busqueda;
     widget.biblioteca.addListener(_alCambiarBusqueda);
-    _scrollController.addListener(_alScrollear);
     _cargarDatosLocales();
   }
 
@@ -82,19 +80,10 @@ class _LibraryTabState extends State<LibraryTab> {
   @override
   void dispose() {
     _debounce?.cancel();
-    _scrollController.removeListener(_alScrollear);
     _scrollController.dispose();
     widget.biblioteca.removeListener(_alCambiarBusqueda);
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _alScrollear() {
-    if (!_scrollController.hasClients) return;
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent - 250) {
-      widget.biblioteca.cargarMas();
-    }
   }
 
   /// Mantiene el campo sincronizado si la búsqueda se borra desde otro lado.
@@ -226,16 +215,62 @@ class _LibraryTabState extends State<LibraryTab> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      hayFiltroActivo
-                          ? 'Filtro aplicado'
-                          : '${b.libros.length} libros en catálogo',
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        letterSpacing: -0.1,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            hayFiltroActivo
+                                ? 'Filtro aplicado'
+                                : (b.totalPaginas > 1
+                                    ? 'Pág. ${b.paginaActual}/${b.totalPaginas} (${b.totalRemoto > 0 ? b.totalRemoto : b.libros.length} vol.)'
+                                    : '${b.libros.length} libros en catálogo'),
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ),
+                        if (b.totalPaginas > 1 && !hayFiltroActivo) ...[
+                          const SizedBox(width: 4),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left_rounded, size: 20),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: 'Página anterior',
+                            onPressed: b.tienePaginaAnterior
+                                ? () {
+                                    b.irAPagina(b.paginaActual - 1);
+                                    _scrollController.animateTo(
+                                      0,
+                                      duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOut,
+                                    );
+                                  }
+                                : null,
+                          ),
+                          const SizedBox(width: 2),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right_rounded, size: 20),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: 'Página siguiente',
+                            onPressed: b.tienePaginaSiguiente
+                                ? () {
+                                    b.irAPagina(b.paginaActual + 1);
+                                    _scrollController.animateTo(
+                                      0,
+                                      duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOut,
+                                    );
+                                  }
+                                : null,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   if (hayFiltroActivo)
@@ -1255,7 +1290,6 @@ class _LibraryTabState extends State<LibraryTab> {
     }
 
     final tieneHeaderDegradado = b.modoDegradado;
-    final tieneItemCargaMas = b.hayMas || b.cargandoMas;
 
     if (_vistaCuadricula) {
       return RefreshIndicator(
@@ -1263,27 +1297,79 @@ class _LibraryTabState extends State<LibraryTab> {
           await b.refrescar();
           await _cargarDatosLocales();
         },
-        child: GridView.builder(
+        child: CustomScrollView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.58,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 16,
-          ),
-          itemCount: librosFiltrados.length,
-          itemBuilder: (context, i) {
-            final libro = librosFiltrados[i];
-            return _GridBookCard(
-              libro: libro,
-              pendiente: b.esPendiente(libro.id),
-              esFavorito: _favoritos.contains(libro.id),
-              progreso: _progresos[libro.id],
-              onRetorno: _cargarDatosLocales,
-            );
-          },
+          slivers: [
+            if (tieneHeaderDegradado)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1912),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.amber.shade700.withValues(alpha: 0.5),
+                        width: 1.1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.cloud_off_rounded,
+                          size: 18,
+                          color: Colors.amber.shade300,
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Mostrando libros guardados en el dispositivo (sin conexión al servidor).',
+                            style: TextStyle(fontSize: 12, color: Color(0xFFC7BBA8)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.58,
+                  crossAxisSpacing: 14,
+                  mainAxisSpacing: 16,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) {
+                    final libro = librosFiltrados[i];
+                    return GridBookCard(
+                      libro: libro,
+                      pendiente: b.esPendiente(libro.id),
+                      esFavorito: _favoritos.contains(libro.id),
+                      progreso: _progresos[libro.id],
+                      onRetorno: _cargarDatosLocales,
+                    );
+                  },
+                  childCount: librosFiltrados.length,
+                ),
+              ),
+            ),
+            if (b.totalPaginas > 1)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                  child: _barraPaginacion(b),
+                ),
+              )
+            else
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 96),
+              ),
+          ],
         ),
       );
     }
@@ -1291,7 +1377,7 @@ class _LibraryTabState extends State<LibraryTab> {
     final totalItems =
         librosFiltrados.length +
         (tieneHeaderDegradado ? 1 : 0) +
-        (tieneItemCargaMas ? 1 : 0);
+        (b.totalPaginas > 1 ? 1 : 0);
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -1341,33 +1427,8 @@ class _LibraryTabState extends State<LibraryTab> {
 
           final indiceLibro = tieneHeaderDegradado ? i - 1 : i;
 
-          if (tieneItemCargaMas && indiceLibro == librosFiltrados.length) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: b.cargandoMas
-                    ? const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 12),
-                          Text(
-                            'Cargando más libros...',
-                            style: TextStyle(fontSize: 13, color: Colors.grey),
-                          ),
-                        ],
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: b.cargarMas,
-                        icon: const Icon(Icons.arrow_downward, size: 16),
-                        label: const Text('Cargar más libros'),
-                      ),
-              ),
-            );
+          if (b.totalPaginas > 1 && indiceLibro == librosFiltrados.length) {
+            return _barraPaginacion(b);
           }
 
           final libro = librosFiltrados[indiceLibro];
@@ -1382,266 +1443,224 @@ class _LibraryTabState extends State<LibraryTab> {
       ),
     );
   }
-}
 
-class _GridBookCard extends StatelessWidget {
-  final LibroModel libro;
-  final bool pendiente;
-  final bool esFavorito;
-  final ProgresoLectura? progreso;
-  final VoidCallback? onRetorno;
-
-  const _GridBookCard({
-    required this.libro,
-    required this.pendiente,
-    required this.esFavorito,
-    this.progreso,
-    this.onRetorno,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _barraPaginacion(BibliotecaController b) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    final tipo = libro.tipoLibro.toLowerCase();
-    final gradientColors = tipo.contains('historia')
-        ? const [Color(0xFF5A2525), Color(0xFF7E3838)]
-        : tipo.contains('ficci') || tipo.contains('novela')
-            ? const [Color(0xFF8C4E26), Color(0xFFC48B5E)]
-            : tipo.contains('pdf')
-                ? const [Color(0xFF1B3B4B), Color(0xFF2C5E78)]
-                : const [Color(0xFF2C1810), Color(0xFF4A2A1E)];
-
-    final porcentaje = progreso?.porcentaje ?? 0.0;
-    final porcentajeEntero = (porcentaje * 100).round();
-    final esCompletado = porcentaje >= 1.0;
 
     return Container(
+      margin: const EdgeInsets.only(top: 10, bottom: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.cardTheme.color,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: pendiente
-              ? Colors.amber.shade700.withValues(alpha: 0.5)
-              : theme.colorScheme.outlineVariant,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Botón Anterior
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              side: BorderSide(
+                color: b.tienePaginaAnterior
+                    ? theme.colorScheme.secondary
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: b.tienePaginaAnterior
+                ? () {
+                    b.irAPagina(b.paginaActual - 1);
+                    _scrollController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_left_rounded, size: 20),
+            label: const Text('Anterior', style: TextStyle(fontSize: 12.5)),
+          ),
+
+          // Selector central de página
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _mostrarDialogoIrAPagina(b),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Pág. ${b.paginaActual} de ${b.totalPaginas}',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_drop_down_rounded,
+                    size: 18,
+                    color: theme.colorScheme.secondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Botón Siguiente
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              side: BorderSide(
+                color: b.tienePaginaSiguiente
+                    ? theme.colorScheme.secondary
+                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: b.tienePaginaSiguiente
+                ? () {
+                    b.irAPagina(b.paginaActual + 1);
+                    _scrollController.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                : null,
+            icon: const Icon(Icons.chevron_right_rounded, size: 20),
+            label: const Text('Siguiente', style: TextStyle(fontSize: 12.5)),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BookDetailScreen(
-                  idLibro: libro.id,
-                  titulo: libro.titulo,
-                  libroLocal: pendiente ? libro : null,
+    );
+  }
+
+  void _mostrarDialogoIrAPagina(BibliotecaController b) {
+    final theme = Theme.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border(
+              top: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            );
-            onRetorno?.call();
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Portada de libro con aspecto editorial y lomo
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: gradientColors,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.black.withValues(alpha: 0.18),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
-                          blurRadius: 6,
-                          offset: const Offset(1, 3),
-                        ),
-                      ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Saltar a página',
+                    style: TextStyle(
+                      fontFamily: 'Literata',
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
                     ),
-                    child: Stack(
-                      children: [
-                        // Franja de efecto de lomo a la izquierda
-                        Positioned(
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          width: 6,
+                  ),
+                  Text(
+                    'Total: ${b.totalPaginas} págs (${b.totalRemoto} libros)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.4,
+                ),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (int p = 1; p <= b.totalPaginas; p++)
+                        InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            if (p != b.paginaActual) {
+                              b.irAPagina(p);
+                              _scrollController.animateTo(
+                                0,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          },
                           child: Container(
+                            width: 48,
+                            height: 44,
+                            alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              borderRadius: const BorderRadius.only(
-                                topLeft: Radius.circular(8),
-                                bottomLeft: Radius.circular(8),
+                              color: p == b.paginaActual
+                                  ? theme.colorScheme.secondary
+                                  : theme.colorScheme.surfaceContainer,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: p == b.paginaActual
+                                    ? theme.colorScheme.secondary
+                                    : theme.colorScheme.outlineVariant,
+                                width: p == b.paginaActual ? 1.5 : 1,
                               ),
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.45),
-                                  Colors.white.withValues(alpha: 0.15),
-                                  Colors.black.withValues(alpha: 0.25),
-                                ],
+                            ),
+                            child: Text(
+                              '$p',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: p == b.paginaActual
+                                    ? FontWeight.bold
+                                    : FontWeight.w600,
+                                color: p == b.paginaActual
+                                    ? Colors.white
+                                    : theme.colorScheme.onSurface,
                               ),
                             ),
                           ),
                         ),
-                        // Contenido de la portada
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Flexible(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.65),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        tipo.contains('pdf')
-                                            ? 'PDF'
-                                            : libro.tipoLibro.replaceFirst(RegExp(r'^Category:\s*', caseSensitive: false), ''),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFFFCF9F4),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  if (esFavorito) ...[
-                                    const SizedBox(width: 4),
-                                    const Icon(
-                                      Icons.star_rounded,
-                                      color: Color(0xFFD4A373),
-                                      size: 16,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              const Spacer(),
-                              Text(
-                                libro.titulo,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontFamily: 'Literata',
-                                  color: Color(0xFFFCF9F4),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10.5,
-                                  height: 1.15,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                libro.autor,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'Newsreader',
-                                  color: const Color(0xFFFCF9F4).withValues(alpha: 0.8),
-                                  fontSize: 9,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                // Metadatos fuera de la portada
-                Text(
-                  libro.titulo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Literata',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12.5,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                Text(
-                  libro.autor.isEmpty ? 'Autor no especificado' : libro.autor,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Newsreader',
-                    fontSize: 11,
-                    fontStyle: FontStyle.italic,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                // Medidor de progreso dorado
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      esCompletado
-                          ? 'Completado'
-                          : porcentajeEntero > 0
-                              ? 'Leído'
-                              : '${libro.anioInicio}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    Text(
-                      esCompletado
-                          ? '100%'
-                          : porcentajeEntero > 0
-                              ? '$porcentajeEntero%'
-                              : '${libro.paginas.length} pág.',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.secondary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: porcentajeEntero > 0 ? porcentaje : 0.0,
-                    minHeight: 3,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.secondary),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
