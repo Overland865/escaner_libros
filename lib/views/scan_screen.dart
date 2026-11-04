@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -42,6 +43,10 @@ class _ScanScreenState extends State<ScanScreen> {
   final ImagePicker _galeria = ImagePicker();
 
   bool _procesando = false;
+  bool _tomandoFoto = false;
+  int _enCola = 0;
+  int _siguienteNumeroPagina = 1;
+  final List<Future<void>> _tareasActivas = [];
   bool _saliendo = false;
   bool _mostrarGuia = true;
   int _filtroActivo = 0; // 0: Color Real, 1: B/N Texto Puro
@@ -75,19 +80,18 @@ class _ScanScreenState extends State<ScanScreen> {
         return;
       }
 
-      // Priorizar veryHigh (1080p) para nitidez en letras pequeñas y bordes
+      // Usar high (720p) para disparo instantáneo y peso ligero (~200 KB) ideal para Gemini OCR
       CameraController controller = CameraController(
         camaras.first,
-        ResolutionPreset.veryHigh,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       try {
         await controller.initialize();
       } catch (_) {
-        // Fallback a high si el dispositivo no soporta veryHigh
         controller = CameraController(
           camaras.first,
-          ResolutionPreset.high,
+          ResolutionPreset.medium,
           enableAudio: false,
         );
         await controller.initialize();
@@ -179,84 +183,100 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  Future<void> _procesarImagen(
+  void _encolarImagen(
     String ruta,
-    String mensajeCarga, {
+    int numero, {
     bool eliminarImagenAlFinal = false,
-  }) async {
-    setState(() {
-      _procesando = true;
-      _mensaje = mensajeCarga;
-    });
+  }) {
+    setState(() => _enCola++);
 
-    try {
-      final resultado = await _ocr.procesarImagenDetallado(ruta);
-      final texto = (resultado['texto'] as String? ?? '').trim();
-      final motor = resultado['motor'] as String? ?? 'Gemini AI';
+    late final Future<void> tarea;
+    tarea = () async {
+      try {
+        final resultado = await _ocr.procesarImagenDetallado(ruta);
+        final texto = (resultado['texto'] as String? ?? '').trim();
+        final motor = resultado['motor'] as String? ?? 'Gemini AI';
 
-      final numero = _paginas.length + 1;
-      final palabras = texto.isEmpty
-          ? 0
-          : texto.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).length;
+        final palabras = texto.isEmpty
+            ? 0
+            : texto.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).length;
 
-      if (!mounted) return;
-      setState(() {
-        _paginas.add(
-          PaginaModel(
-            numeroPagina: numero,
-            nombreArchivo: 'pagina_${numero.toString().padLeft(3, '0')}.txt',
-            conteoPalabras: palabras,
-            texto: texto,
-            motor: motor,
-          ),
-        );
-      });
+        if (!mounted) return;
+        setState(() {
+          _paginas.add(
+            PaginaModel(
+              numeroPagina: numero,
+              nombreArchivo: 'pagina_${numero.toString().padLeft(3, '0')}.txt',
+              conteoPalabras: palabras,
+              texto: texto,
+              motor: motor,
+            ),
+          );
+          _paginas.sort((a, b) => a.numeroPagina.compareTo(b.numeroPagina));
+        });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            texto.isEmpty
-                ? 'Página $numero sin texto legible · $motor'
-                : 'Página $numero · $palabras palabras · $motor',
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: Colors.red.shade900,
-            content: Text('Error al transcribir con Gemini: $e'),
-            duration: const Duration(seconds: 5),
+            content: Text(
+              texto.isEmpty
+                  ? 'Página $numero sin texto legible · $motor'
+                  : '✓ Página $numero lista · $palabras palabras',
+            ),
+            duration: const Duration(seconds: 2),
           ),
         );
-      }
-    } finally {
-      if (eliminarImagenAlFinal) {
-        try {
-          final imagenTemporal = File(ruta);
-          if (await imagenTemporal.exists()) await imagenTemporal.delete();
-        } catch (e) {
-          debugPrint('No se pudo eliminar la captura temporal: $e');
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.red.shade900,
+              content: Text('Error en página $numero: $e'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } finally {
+        if (eliminarImagenAlFinal) {
+          try {
+            final imagenTemporal = File(ruta);
+            if (await imagenTemporal.exists()) await imagenTemporal.delete();
+          } catch (e) {
+            debugPrint('No se pudo eliminar la captura temporal: $e');
+          }
+        }
+        _tareasActivas.remove(tarea);
+        if (mounted) {
+          setState(() {
+            if (_enCola > 0) _enCola--;
+          });
         }
       }
-      if (mounted) setState(() => _procesando = false);
-    }
+    }();
+
+    _tareasActivas.add(tarea);
   }
 
   Future<void> _capturar() async {
     final camara = _camara;
-    if (camara == null || !camara.value.isInitialized || _procesando) return;
+    if (camara == null ||
+        !camara.value.isInitialized ||
+        _tomandoFoto ||
+        _procesando) {
+      return;
+    }
+    setState(() => _tomandoFoto = true);
     try {
       final XFile foto = await camara.takePicture();
-      await _procesarImagen(
+      final int numero = _siguienteNumeroPagina++;
+      if (mounted) setState(() => _tomandoFoto = false);
+      _encolarImagen(
         foto.path,
-        'Digitalizando y transcribiendo página...',
+        numero,
         eliminarImagenAlFinal: true,
       );
     } catch (e) {
       if (mounted) {
+        setState(() => _tomandoFoto = false);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('No se pudo tomar la foto: $e')));
@@ -267,11 +287,16 @@ class _ScanScreenState extends State<ScanScreen> {
   Future<void> _importarDeGaleria() async {
     if (_procesando) return;
     try {
-      final seleccion = await _galeria.pickMultiImage(imageQuality: 92);
+      final seleccion = await _galeria.pickMultiImage(
+        imageQuality: 80,
+        maxWidth: 1400,
+        maxHeight: 1400,
+      );
       if (seleccion.isEmpty) return;
       for (final XFile archivo in seleccion) {
         if (!mounted) return;
-        await _procesarImagen(archivo.path, 'Procesando ${archivo.name}...');
+        final int numero = _siguienteNumeroPagina++;
+        _encolarImagen(archivo.path, numero);
       }
     } catch (e) {
       if (mounted) {
@@ -283,12 +308,25 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Future<void> _irARevision() async {
-    if (_paginas.isEmpty) {
+    if (_paginas.isEmpty && _tareasActivas.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Debes escanear al menos una página')),
       );
       return;
     }
+
+    if (_tareasActivas.isNotEmpty) {
+      setState(() {
+        _procesando = true;
+        _mensaje =
+            'Finalizando transcripción de $_enCola página(s) en curso...';
+      });
+      await Future.wait(List<Future<void>>.from(_tareasActivas));
+      if (!mounted) return;
+      setState(() => _procesando = false);
+    }
+
+    if (_paginas.isEmpty) return;
     setState(() => _saliendo = true);
 
     final libro = LibroModel(
@@ -318,7 +356,10 @@ class _ScanScreenState extends State<ScanScreen> {
     if (guardado == true) {
       Navigator.of(context).pop(true);
     } else {
-      setState(() => _saliendo = false);
+      setState(() {
+        _saliendo = false;
+        _siguienteNumeroPagina = _paginas.length + 1;
+      });
     }
   }
 
@@ -705,18 +746,30 @@ class _ScanScreenState extends State<ScanScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF4ADE80),
-                        shape: BoxShape.circle,
+                    if (_enCola > 0)
+                      const SizedBox(
+                        width: 11,
+                        height: 11,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.8,
+                          color: Color(0xFFD4A373),
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4ADE80),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Página detectada • Calibración 100%',
-                      style: TextStyle(
+                    Text(
+                      _enCola > 0
+                          ? 'Transcribiendo $_enCola pág. en segundo plano...'
+                          : 'Página detectada • Calibración 100%',
+                      style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFFFCF9F4),
@@ -739,7 +792,7 @@ class _ScanScreenState extends State<ScanScreen> {
                           top: 14,
                           left: 16,
                           child: Text(
-                            'PÁGINA ${_paginas.length + 1}',
+                            'PÁGINA $_siguienteNumeroPagina',
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
