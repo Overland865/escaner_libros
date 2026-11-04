@@ -11,7 +11,6 @@ import '../services/ocr_service.dart';
 import 'preview_screen.dart';
 
 /// Escáner Óptico de Libros en vivo + OCR página por página.
-/// Implementa el diseño Stitch "Escáner Óptico de Libros" (`f1b23f57...`).
 class ScanScreen extends StatefulWidget {
   final String idLibro;
   final String titulo;
@@ -119,7 +118,10 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  Future<void> _enfocarEnPunto(TapDownDetails details, CameraController camara) async {
+  Future<void> _enfocarEnPunto(
+    TapDownDetails details,
+    CameraController camara,
+  ) async {
     if (!camara.value.isInitialized) return;
 
     final RenderBox? box = context.findRenderObject() as RenderBox?;
@@ -160,14 +162,18 @@ class _ScanScreenState extends State<ScanScreen> {
   Future<void> _alternarFlash() async {
     final camara = _camara;
     if (camara == null || !camara.value.isInitialized) return;
-    final nuevo = _flashMode == FlashMode.torch ? FlashMode.off : FlashMode.torch;
+    final nuevo = _flashMode == FlashMode.torch
+        ? FlashMode.off
+        : FlashMode.torch;
     try {
       await camara.setFlashMode(nuevo);
       setState(() => _flashMode = nuevo);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Linterna no disponible en este dispositivo')),
+          const SnackBar(
+            content: Text('Linterna no disponible en este dispositivo'),
+          ),
         );
       }
     }
@@ -258,8 +264,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-
-
   Future<void> _importarDeGaleria() async {
     if (_procesando) return;
     try {
@@ -344,16 +348,10 @@ class _ScanScreenState extends State<ScanScreen> {
               _buildFallbackViewport(camara != null),
 
             // 2. HUD Óptico de Encuadre de Pliegos (Stitch Screen 5)
-            if (_mostrarGuia)
-              _buildOpticalAlignmentHud(),
+            if (_mostrarGuia) _buildOpticalAlignmentHud(),
 
             // 3. Barra Superior Flotante (Stitch Top Navigation)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: _buildTopNavigation(),
-            ),
+            Positioned(top: 0, left: 0, right: 0, child: _buildTopNavigation()),
 
             // 4. Consola Inferior de Disparo Artesanal y Filtros (Stitch Bottom Deck)
             Positioned(
@@ -386,10 +384,26 @@ class _ScanScreenState extends State<ScanScreen> {
       // B/N Texto Puro
       preview = ColorFiltered(
         colorFilter: const ColorFilter.matrix(<double>[
-          0.33, 0.59, 0.11, 0, 0,
-          0.33, 0.59, 0.11, 0, 0,
-          0.33, 0.59, 0.11, 0, 0,
-          0, 0, 0, 1, 0,
+          0.33,
+          0.59,
+          0.11,
+          0,
+          0,
+          0.33,
+          0.59,
+          0.11,
+          0,
+          0,
+          0.33,
+          0.59,
+          0.11,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
         ]),
         child: preview,
       );
@@ -447,10 +461,7 @@ class _ScanScreenState extends State<ScanScreen> {
         gradient: RadialGradient(
           center: Alignment.center,
           radius: 0.9,
-          colors: [
-            Color(0xFF362219),
-            Color(0xFF1A110D),
-          ],
+          colors: [Color(0xFF362219), Color(0xFF1A110D)],
         ),
       ),
       child: Center(
@@ -781,10 +792,7 @@ class _ScanScreenState extends State<ScanScreen> {
           const SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 9.5,
-              color: Color(0xFFFCF9F4),
-            ),
+            style: const TextStyle(fontSize: 9.5, color: Color(0xFFFCF9F4)),
           ),
         ],
       ),
@@ -885,8 +893,8 @@ class _ScanScreenState extends State<ScanScreen> {
                     onTap: _procesando
                         ? null
                         : (_paginas.isNotEmpty
-                            ? _irARevision
-                            : _importarDeGaleria),
+                              ? _irARevision
+                              : _importarDeGaleria),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1049,10 +1057,7 @@ class _ScanScreenState extends State<ScanScreen> {
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFFFCF9F4),
-                            Color(0xFFE8E2D7),
-                          ],
+                          colors: [Color(0xFFFCF9F4), Color(0xFFE8E2D7)],
                         ),
                       ),
                       child: const Center(
@@ -1080,7 +1085,8 @@ class _ScanScreenState extends State<ScanScreen> {
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2C1810).withValues(alpha: 0.9),
+                            color: const Color(0xFF2C1810)
+                                .withValues(alpha: 0.9),
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: const Color(0xFFD4A373)
