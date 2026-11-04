@@ -133,12 +133,25 @@ class _LibraryTabState extends State<LibraryTab> {
   List<String> _obtenerCategorias(List<LibroModel> libros) {
     final categorias = <String>{};
     for (final l in libros) {
-      final t = l.tipoLibro.trim();
-      if (t.isNotEmpty && t != 'General') {
-        categorias.add(t);
+      for (final parte in l.tipoLibro.split(',')) {
+        final t = parte.trim();
+        if (t.isNotEmpty && t != 'General') {
+          categorias.add(t);
+        }
+      }
+      for (final p in l.palabrasClave) {
+        final t = p.trim();
+        if (t.isNotEmpty && t != 'General' && t.length < 40) {
+          categorias.add(t);
+        }
       }
     }
-    final lista = categorias.toList()..sort();
+    final lista = categorias.toList()
+      ..sort((a, b) {
+        final aClean = a.replaceFirst(RegExp(r'^category:\s*', caseSensitive: false), '');
+        final bClean = b.replaceFirst(RegExp(r'^category:\s*', caseSensitive: false), '');
+        return aClean.toLowerCase().compareTo(bClean.toLowerCase());
+      });
     return lista;
   }
 
@@ -236,6 +249,9 @@ class _LibraryTabState extends State<LibraryTab> {
                       icon: const Icon(Icons.close_rounded, size: 14),
                       label: const Text('Limpiar', style: TextStyle(fontSize: 12)),
                     ),
+                  // Botón clásico de filtrado
+                  _botonFiltrar(b),
+                  const SizedBox(width: 4),
                   // Botón de ordenamiento
                   _botonOrdenar(),
                   const SizedBox(width: 4),
@@ -267,7 +283,8 @@ class _LibraryTabState extends State<LibraryTab> {
 
   Widget _barraFiltrosRapidos(BibliotecaController b) {
     final theme = Theme.of(context);
-    final categorias = _obtenerCategorias(b.libros);
+    final tieneCategoria = _categoriaSeleccionada != 'Todas';
+    final filtroActivo = tieneCategoria || _filtroRapido != 'todos';
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -275,11 +292,67 @@ class _LibraryTabState extends State<LibraryTab> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
+          // Botón clásico de filtros rápidos
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _mostrarModalFiltros(b),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: filtroActivo
+                    ? theme.colorScheme.secondary.withValues(alpha: 0.16)
+                    : theme.colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: filtroActivo
+                      ? theme.colorScheme.secondary
+                      : theme.colorScheme.outlineVariant,
+                  width: filtroActivo ? 1.4 : 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.tune_rounded,
+                    size: 15,
+                    color: filtroActivo
+                        ? theme.colorScheme.secondary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Filtros',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: filtroActivo
+                          ? theme.colorScheme.secondary
+                          : theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  if (filtroActivo) ...[
+                    const SizedBox(width: 5),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.secondary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
           // Chip Todos
           _chipFiltro(
             etiqueta: 'Todos (${b.libros.length})',
             icono: Icons.auto_stories_rounded,
-            esActivo: _filtroRapido == 'todos' && _categoriaSeleccionada == 'Todas',
+            esActivo: _filtroRapido == 'todos' && !tieneCategoria,
             colorActivo: theme.colorScheme.secondary,
             alTocar: () {
               setState(() {
@@ -305,7 +378,6 @@ class _LibraryTabState extends State<LibraryTab> {
                   _filtroRapido = 'todos';
                 } else {
                   _filtroRapido = 'favoritos';
-                  _categoriaSeleccionada = 'Todas';
                 }
               });
             },
@@ -327,33 +399,469 @@ class _LibraryTabState extends State<LibraryTab> {
                   _filtroRapido = 'todos';
                 } else {
                   _filtroRapido = 'en_lectura';
-                  _categoriaSeleccionada = 'Todas';
                 }
               });
             },
           ),
 
-          // Chips de categorías dinámicas
-          for (final cat in categorias) ...[
+          // Si hay una categoría seleccionada, mostrar chip activo con botón "X"
+          if (tieneCategoria) ...[
             const SizedBox(width: 8),
-            _chipFiltro(
-              etiqueta: cat,
-              icono: Icons.category_outlined,
-              esActivo: _categoriaSeleccionada == cat,
-              colorActivo: theme.colorScheme.secondary,
-              alTocar: () {
-                setState(() {
-                  if (_categoriaSeleccionada == cat) {
-                    _categoriaSeleccionada = 'Todas';
-                  } else {
-                    _categoriaSeleccionada = cat;
-                    _filtroRapido = 'todos';
-                  }
-                });
-              },
+            Container(
+              padding: const EdgeInsets.only(left: 10, right: 6, top: 4, bottom: 4),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.category_rounded,
+                    size: 14,
+                    color: theme.colorScheme.secondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _categoriaSeleccionada.replaceFirst(RegExp(r'^category:\s*', caseSensitive: false), ''),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      setState(() => _categoriaSeleccionada = 'Todas');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 14,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _botonFiltrar(BibliotecaController b) {
+    final theme = Theme.of(context);
+    final filtroActivo = _categoriaSeleccionada != 'Todas' || _filtroRapido != 'todos';
+
+    return Tooltip(
+      message: 'Filtrar catálogo',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _mostrarModalFiltros(b),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: filtroActivo
+                ? theme.colorScheme.secondary.withValues(alpha: 0.2)
+                : theme.colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: filtroActivo
+                  ? theme.colorScheme.secondary
+                  : theme.colorScheme.outlineVariant,
+            ),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                color: filtroActivo
+                    ? theme.colorScheme.secondary
+                    : theme.colorScheme.onSurfaceVariant,
+                size: 19,
+              ),
+              if (filtroActivo)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.secondary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _mostrarModalFiltros(BibliotecaController b) {
+    final categorias = _obtenerCategorias(b.libros);
+    String tempFiltroRapido = _filtroRapido;
+    String tempCategoria = _categoriaSeleccionada;
+    String filtroTextoCategoria = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final isDark = theme.brightness == Brightness.dark;
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final categoriasFiltradas = filtroTextoCategoria.isEmpty
+                ? categorias
+                : categorias
+                    .where((c) => c
+                        .toLowerCase()
+                        .contains(filtroTextoCategoria.toLowerCase()))
+                    .toList();
+
+            final hayFiltros = tempFiltroRapido != 'todos' || tempCategoria != 'Todas';
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.78,
+              decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Tirador superior
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 10, bottom: 8),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+
+                  // Cabecera del modal
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 6, 16, 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.tune_rounded,
+                              color: theme.colorScheme.secondary,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Filtrar Catálogo',
+                              style: TextStyle(
+                                fontFamily: 'Literata',
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (hayFiltros)
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: theme.colorScheme.secondary,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              setModalState(() {
+                                tempFiltroRapido = 'todos';
+                                tempCategoria = 'Todas';
+                              });
+                            },
+                            icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                            label: const Text('Limpiar filtros', style: TextStyle(fontSize: 12.5)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, color: theme.colorScheme.outlineVariant),
+
+                  // Contenido scrolleable
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      children: [
+                        // Sección 1: Colección o Estado
+                        Text(
+                          'COLECCIÓN O ESTADO',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _chipOpcionModal(
+                              etiqueta: 'Todos (${b.libros.length})',
+                              icono: Icons.auto_stories_rounded,
+                              seleccionado: tempFiltroRapido == 'todos',
+                              color: theme.colorScheme.secondary,
+                              alTocar: () => setModalState(() => tempFiltroRapido = 'todos'),
+                              theme: theme,
+                              isDark: isDark,
+                            ),
+                            _chipOpcionModal(
+                              etiqueta: 'Favoritos (${_favoritos.length})',
+                              icono: Icons.star_rounded,
+                              seleccionado: tempFiltroRapido == 'favoritos',
+                              color: const Color(0xFFD4A373),
+                              alTocar: () => setModalState(
+                                () => tempFiltroRapido = (tempFiltroRapido == 'favoritos' ? 'todos' : 'favoritos'),
+                              ),
+                              theme: theme,
+                              isDark: isDark,
+                            ),
+                            _chipOpcionModal(
+                              etiqueta: 'En lectura (${_librosConMarcadores.length})',
+                              icono: Icons.bookmark_rounded,
+                              seleccionado: tempFiltroRapido == 'en_lectura',
+                              color: const Color(0xFF8C4E26),
+                              alTocar: () => setModalState(
+                                () => tempFiltroRapido = (tempFiltroRapido == 'en_lectura' ? 'todos' : 'en_lectura'),
+                              ),
+                              theme: theme,
+                              isDark: isDark,
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // Sección 2: Categorías
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'CATEGORÍA O GÉNERO',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                                color: theme.colorScheme.secondary,
+                              ),
+                            ),
+                            if (tempCategoria != 'Todas')
+                              Flexible(
+                                child: Text(
+                                  tempCategoria.replaceFirst(RegExp(r'^category:\s*', caseSensitive: false), ''),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: theme.colorScheme.secondary,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Buscador interno de categorías si hay más de 5
+                        if (categorias.length > 5) ...[
+                          TextField(
+                            decoration: InputDecoration(
+                              hintText: 'Buscar categoría...',
+                              hintStyle: TextStyle(
+                                fontSize: 13,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              prefixIcon: Icon(Icons.search, size: 18, color: theme.colorScheme.secondary),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              fillColor: theme.colorScheme.surfaceContainer,
+                              filled: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: theme.colorScheme.secondary, width: 1.4),
+                              ),
+                            ),
+                            onChanged: (val) {
+                              setModalState(() => filtroTextoCategoria = val.trim());
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _chipOpcionModal(
+                              etiqueta: 'Todas las categorías',
+                              icono: Icons.grid_view_rounded,
+                              seleccionado: tempCategoria == 'Todas',
+                              color: theme.colorScheme.secondary,
+                              alTocar: () => setModalState(() => tempCategoria = 'Todas'),
+                              theme: theme,
+                              isDark: isDark,
+                            ),
+                            for (final cat in categoriasFiltradas)
+                              _chipOpcionModal(
+                                etiqueta: cat.replaceFirst(RegExp(r'^category:\s*', caseSensitive: false), ''),
+                                icono: Icons.category_outlined,
+                                seleccionado: tempCategoria == cat,
+                                color: theme.colorScheme.secondary,
+                                alTocar: () => setModalState(
+                                  () => tempCategoria = (tempCategoria == cat ? 'Todas' : cat),
+                                ),
+                                theme: theme,
+                                isDark: isDark,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Divider(height: 1, color: theme.colorScheme.outlineVariant),
+
+                  // Barra de acciones: Limpiar todo / Aplicar
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              side: BorderSide(color: theme.colorScheme.outlineVariant),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _filtroRapido = 'todos';
+                                _categoriaSeleccionada = 'Todas';
+                              });
+                              Navigator.pop(ctx);
+                            },
+                            icon: const Icon(Icons.clear_all_rounded, size: 18),
+                            label: const Text('Limpiar todo'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: theme.colorScheme.secondary,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _filtroRapido = tempFiltroRapido;
+                                _categoriaSeleccionada = tempCategoria;
+                              });
+                              Navigator.pop(ctx);
+                            },
+                            icon: const Icon(Icons.check_rounded, size: 18, color: Colors.white),
+                            label: const Text(
+                              'Aplicar filtros',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _chipOpcionModal({
+    required String etiqueta,
+    required IconData icono,
+    required bool seleccionado,
+    required Color color,
+    required VoidCallback alTocar,
+    required ThemeData theme,
+    required bool isDark,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: alTocar,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: seleccionado
+              ? color.withValues(alpha: isDark ? 0.35 : 0.18)
+              : theme.colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: seleccionado ? color : theme.colorScheme.outlineVariant,
+            width: seleccionado ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icono,
+              size: 15,
+              color: seleccionado ? color : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              etiqueta,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: seleccionado ? FontWeight.bold : FontWeight.w500,
+                color: seleccionado
+                    ? (isDark ? Colors.white : color)
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,9 +1110,16 @@ class _LibraryTabState extends State<LibraryTab> {
 
     // 2. Filtrado por género / categoría seleccionada
     if (_categoriaSeleccionada != 'Todas') {
+      final catBuscada = _categoriaSeleccionada.trim().toLowerCase();
+      final catLimpia = catBuscada.replaceFirst(RegExp(r'^category:\s*'), '');
       librosFiltrados = librosFiltrados.where((l) {
-        return l.tipoLibro.trim().toLowerCase() ==
-            _categoriaSeleccionada.trim().toLowerCase();
+        final tipo = l.tipoLibro.trim().toLowerCase();
+        if (tipo == catBuscada || tipo == catLimpia) return true;
+        if (catLimpia.isNotEmpty && tipo.contains(catLimpia)) return true;
+        return l.palabrasClave.any((p) {
+          final pk = p.trim().toLowerCase();
+          return pk == catBuscada || pk == catLimpia || (catLimpia.isNotEmpty && pk.contains(catLimpia));
+        });
       }).toList();
     }
 
